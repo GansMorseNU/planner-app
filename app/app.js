@@ -85,7 +85,7 @@ const DBX = {
       headers: { Authorization: "Bearer " + await this.access(), "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (r.status === 401) { this.token = null; throw new NeedSignIn(); }
     if (r.status === 409) return { _missing: true, ...(await r.json().catch(() => ({}))) };
-    if (!r.ok) throw new Error(`Dropbox ${endpoint}: ${r.status}`);
+    if (!r.ok) throw new Error(`Dropbox ${endpoint} (${r.status}): ${(await r.text()).slice(0, 300)}`);
     return r.json();
   },
   async list(path) {
@@ -101,7 +101,7 @@ const DBX = {
       headers: { Authorization: "Bearer " + await this.access(), "Dropbox-API-Arg": this.arg({ path }) } });
     if (r.status === 409) return null;
     if (r.status === 401) { this.token = null; throw new NeedSignIn(); }
-    if (!r.ok) throw new Error(`Couldn't read ${path} (${r.status})`);
+    if (!r.ok) throw new Error(`Couldn't read ${path} (${r.status}): ${(await r.text()).slice(0, 300)}`);
     const meta = JSON.parse(r.headers.get("Dropbox-API-Result") || "{}");
     return { text: await r.text(), rev: meta.rev || "" };
   },
@@ -114,7 +114,7 @@ const DBX = {
       body: new TextEncoder().encode(text) });
     if (r.status === 409) { const t = await r.text(); if (t.includes("conflict")) throw new Conflict(path); throw new Error(t); }
     if (r.status === 401) { this.token = null; throw new NeedSignIn(); }
-    if (!r.ok) throw new Error(`Couldn't save ${path} (${r.status})`);
+    if (!r.ok) throw new Error(`Couldn't save ${path} (${r.status}): ${(await r.text()).slice(0, 300)}`);
     return (await r.json()).rev;
   },
 };
