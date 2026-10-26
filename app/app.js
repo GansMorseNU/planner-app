@@ -495,6 +495,8 @@ function renderSettings() {
     <h3>Dropbox</h3>
     <p class="small">Signed in. Your Planner folder: ${CFG.root}</p>
     <button id="signout">Sign out of Dropbox</button>
+    <p class="small">For setting up the chat: copies this phone's Dropbox key so the GitHub job can reach your Planner folder. Paste it only into the GitHub secret DROPBOX_REFRESH_TOKEN.</p>
+    <button id="copy-dbx">Copy Dropbox key for GitHub</button>
     <h3>About</h3>
     <p class="small">Same files as the desktop Planner. Changes made here appear on the Mac within seconds when the Planner is open there.</p>`;
 }
@@ -548,6 +550,11 @@ document.addEventListener("click", async (e) => {
   if (t.id === "chat-new") { LS.set("chat_conv", null); return renderChat(); }
   if (t.id === "gh-save") { const v = $("#gh-token").value.trim(); if (v) { LS.set("gh_token", v); showBanner("GitHub key saved."); } return renderSettings(); }
   if (t.id === "gh-clear") { LS.set("gh_token", null); return renderSettings(); }
+  if (t.id === "copy-dbx") {
+    try { await navigator.clipboard.writeText(LS.get("dbx_refresh") || ""); showBanner("Copied. Paste it into the GitHub secret DROPBOX_REFRESH_TOKEN."); }
+    catch { showBanner("Couldn't copy on this device."); }
+    return;
+  }
   if (t.id === "signout") { LS.set("dbx_refresh", null); return showSignIn(); }
   if (t.id === "signin-btn") { location.href = await DBX.authUrl(false); return; }
   if (t.id === "paste-start") { window.open(await DBX.authUrl(true), "_blank"); return; }
