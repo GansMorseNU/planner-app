@@ -122,8 +122,11 @@ li.done > .row-item .txt { text-decoration: line-through; color: var(--muted); }
 .caret { width: 30px; flex: none; }
 .caret-sp { width: 30px; }
 .nnote { margin-left: 64px; }
-.editbar { position: sticky; top: 0; z-index: 5; display: flex; gap: 6px; padding: 6px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
-.editbar button { flex: 1; font-size: 14px; padding: 8px 4px; white-space: nowrap; touch-action: manipulation; }
+.editbar { position: fixed; left: 0; right: 0; top: 0; z-index: 20; display: flex; gap: 6px; padding: 6px 10px; background: var(--panel); border-top: 1px solid var(--line); box-shadow: 0 -2px 8px rgba(0,0,0,.08); }
+.editbar button { flex: 1; font-size: 15px; padding: 10px 4px; white-space: nowrap; touch-action: manipulation; background: var(--bg); }
+.editbar button[data-op="undo"] { flex: 0 0 52px; }
+.editbar button.primary { background: var(--accent); }
+body.editing .view { padding-bottom: 70px; }
 .top > div { display: flex; gap: 2px; }
 .icon.undo { font-size: 22px; }
 #saving { color: var(--muted); font-size: 13px; }

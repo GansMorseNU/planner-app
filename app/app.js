@@ -425,13 +425,12 @@ function renderLists() {
   const items = tree.filter(visible);
   L.redrawing = true;
   try { $("#view-lists").innerHTML =
-    `<div class="editbar" hidden><button data-op="outdent">⇤ Outdent</button><button data-op="indent">Indent ⇥</button><button data-op="undo">↶ Undo</button><button data-op="done" class="primary">Done</button></div>` +
     `<div class="listnav">${D.lists.map((l) => `<button data-list="${esc(l.id)}" class="${l.id === list.id ? "on" : ""}">${esc(l.title)}</button>`).join("")}</div>` +
     `<ul class="outline tree">${items.map((n) => node(n, 0)).join("")}</ul>` +
     (items.length ? "" : '<p><button data-op="first">＋ Start the list</button></p>') +
     `<p class="small"><label class="inline"><input type="checkbox" id="show-done"${L.showDone ? " checked" : ""}> Show completed items</label></p>`;
   } finally { L.redrawing = false; }
-  if (L.editing) $(".editbar").hidden = false;
+  showBar(!!L.editing);
 }
 
 // -- line-level operations on an outline file (everything else stays byte-identical)
@@ -557,6 +556,20 @@ function outdent(id) {
     lines.splice(pEnd - block.length, 0, ...block);                   // right after its old parent's group
   }, "outdent");
 }
+// The edit bar floats just above the iPhone keyboard (the keyboard has no Tab key and no "hide").
+function showBar(on) {
+  const bar = $("#editbar"); if (!bar) return;
+  bar.hidden = !on; document.body.classList.toggle("editing", on);
+  if (on) { placeBar(); setTimeout(placeBar, 350); }   // again once the keyboard has finished sliding up
+}
+function placeBar() {
+  const bar = $("#editbar"); if (!bar || bar.hidden) return;
+  const vv = window.visualViewport;
+  bar.style.top = Math.round((vv ? vv.offsetTop + vv.height : innerHeight) - bar.offsetHeight) + "px";
+}
+if (window.visualViewport) { visualViewport.addEventListener("resize", placeBar); visualViewport.addEventListener("scroll", placeBar); }
+window.addEventListener("scroll", placeBar);
+
 function editOp(op) {
   const id = L.editing;
   if (op === "undo") return undo();
@@ -701,6 +714,7 @@ function showSignIn(err) { $("#main").hidden = true; $("#signin").hidden = false
 
 document.addEventListener("click", async (e) => {
   const t = e.target;
+  if (L.editing && !t.closest("[data-edit]") && !t.closest("#editbar")) { document.activeElement?.blur?.(); if (!t.closest("button, input, a")) return; }
   if (t.closest(".tabs button")) return switchView(t.closest("button").dataset.view);
   if (t.dataset.day !== undefined && t.closest(".daynav")) { dayOffset = t.dataset.day === "0" ? 0 : dayOffset + Number(t.dataset.day); return renderToday(); }
   if (t.id === "refresh") return loadAll();
@@ -740,12 +754,12 @@ document.addEventListener("change", (e) => {
 document.addEventListener("focusin", (e) => {
   const el = e.target.closest?.("[data-edit]"); if (!el) return;
   if (L.editing && L.editing !== el.dataset.edit) saveText(L.editing);
-  L.editing = el.dataset.edit; const bar = $(".editbar"); if (bar) bar.hidden = false;
+  L.editing = el.dataset.edit; showBar(true);
 });
 document.addEventListener("focusout", (e) => {
   const el = e.target.closest?.("[data-edit]"); if (!el) return;
   if (!L.redrawing) saveText(el.dataset.edit);   // not while the list is being redrawn (Return, Indent…): the old line's text is stale
-  setTimeout(() => { if (!document.activeElement?.closest?.("[data-edit]")) { L.editing = null; const bar = $(".editbar"); if (bar) bar.hidden = true; } }, 150);
+  setTimeout(() => { if (!document.activeElement?.closest?.("[data-edit]")) { L.editing = null; showBar(false); } }, 150);
 });
 document.addEventListener("input", (e) => {
   const el = e.target.closest?.("[data-edit]"); if (!el) return;
@@ -762,10 +776,10 @@ document.addEventListener("beforeinput", (e) => {   // some iPhone keyboards sen
 });
 // The edit bar acts on press, so the keyboard stays up.
 document.addEventListener("pointerdown", (e) => {
-  const b = e.target.closest?.(".editbar [data-op]"); if (!b) return;
+  const b = e.target.closest?.("#editbar [data-op]"); if (!b) return;
   e.preventDefault(); editOp(b.dataset.op);
 });
-document.addEventListener("mousedown", (e) => { if (e.target.closest?.(".editbar")) e.preventDefault(); });
+document.addEventListener("mousedown", (e) => { if (e.target.closest?.("#editbar")) e.preventDefault(); });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && L.editing) saveText(L.editing); if (document.visibilityState === "visible" && DBX.signedIn() && Date.now() - D.loadedAt > 60e3) loadAll(); });
 
 async function start() {

@@ -96,7 +96,7 @@ const srv = http.createServer((q, r) => {
   const t0 = T();
   await p.click('[data-edit="1miudb"]'); await settle();
   ok(T() === t0, "tapping a section's text does not tick it (no file change)");
-  ok(await p.isVisible(".editbar"), "edit bar appears while editing");
+  ok(await p.isVisible("#editbar"), "edit bar appears while editing");
 
   // type into an item
   await p.click('[data-edit="fr5b31"]'); await p.keyboard.press("End"); await p.keyboard.type(" soon"); await settle();
@@ -108,10 +108,10 @@ const srv = http.createServer((q, r) => {
   ok(/\^fr5b31$/.test(t2[k - 1]) && /^    - \[ \] new from phone @added\(2026-10-26\) \^[a-z0-9]{6}$/.test(t2[k]), "Return makes a new item right below, same level");
   const nid = t2[k].slice(-6);
   // indent -> child of austin item; outdent -> back
-  await p.click('.editbar [data-op="indent"]'); await settle();
+  await p.click('#editbar [data-op="indent"]'); await settle();
   ok(/^      - \[ \] new from phone/m.test(T()), "Indent makes it a child of the item above");
   ok(await p.evaluate(() => document.activeElement?.dataset?.edit) === nid, "keeps typing focus after Indent");
-  await p.click('.editbar [data-op="outdent"]'); await settle();
+  await p.click('#editbar [data-op="outdent"]'); await settle();
   ok(/^    - \[ \] new from phone/m.test(T()) && T().split("\n").findIndex((l) => l.includes("new from phone")) === k, "Outdent puts it back after its old parent");
   // split in the middle
   await p.keyboard.press("Home"); for (let i = 0; i < 4; i++) await p.keyboard.press("ArrowRight");
@@ -122,9 +122,14 @@ const srv = http.createServer((q, r) => {
   ok(T().split("\n").length === t1.split("\n").length + 2, "Backspace on an empty new item removes it");
   // a section with children is never deleted by Backspace
   // undo all the way back to t0
-  await p.click('.editbar [data-op="done"]'); await settle();
+  await p.click('#editbar [data-op="done"]'); await settle();
   for (let i = 0; i < 12 && T() !== t0; i++) { await p.click("#undo"); await settle(); }
   ok(T() === t0, "Undo steps back to the original file, byte for byte");
+  await p.click('[data-edit="fr5b31"]');
+  const bb = await p.locator("#editbar").boundingBox(), vh = p.viewportSize().height;
+  ok(bb && bb.y + bb.height <= vh + 1 && bb.y > vh / 2, "edit bar sits at the bottom of the visible area (above the keyboard)");
+  await p.click("#view-lists .listnav", { position: { x: 5, y: 5 } }); await p.waitForTimeout(300);
+  ok(!(await p.evaluate(() => document.activeElement?.dataset?.edit)) && await p.isHidden("#editbar"), "tapping outside the item closes the keyboard and the bar");
   // tick + undo
   await p.check('input[data-litem="fr5b31"]'); await settle();
   ok(/- \[x\] write austin wright.* @done\(2026-10-26\) \^fr5b31/.test(T()) && diffN(t0, T()) === 1, "ticking a To-Do item changes only its line");
@@ -133,7 +138,7 @@ const srv = http.createServer((q, r) => {
   await p.screenshot({ path: "/tmp/claude-0/phone-lists.png" });
   // a conflict while typing: Mac changed the file -> nothing overwritten
   const fx = files.get("/planner/data/tasks.md"); fx.text = fx.text.replace("finish survey on AI use", "finish survey on AI use (Mac)"); fx.rev = "r" + revN++;
-  await p.click('[data-edit="m3sbe5"]'); await p.keyboard.press("End"); await p.keyboard.type(" X"); await p.click('.editbar [data-op="done"]'); await p.waitForTimeout(2000);
+  await p.click('[data-edit="m3sbe5"]'); await p.keyboard.press("End"); await p.keyboard.type(" X"); await p.click('#editbar [data-op="done"]'); await p.waitForTimeout(2000);
   ok(T().includes("(Mac)") && !T().includes("WCIAS X"), "conflict: Mac's change kept, phone edit not forced over it");
   ok((await p.textContent("#banner")).includes("not"), "conflict: says the change wasn't saved");
   await p.click('button[data-list="ideas"]');
