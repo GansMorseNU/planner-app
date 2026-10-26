@@ -51,6 +51,7 @@ h3 { font-size: 15px; margin: 22px 0 6px; color: var(--muted); text-transform: u
 .chip { border-left: 4px solid var(--c); background: var(--panel); padding: 3px 8px; border-radius: 6px; font-size: 14px; }
 .chip.busy { font-weight: 600; }
 .timeline { list-style: none; padding: 0; margin: 0; }
+.timeline .row-item { flex: 1; gap: 10px; }
 .timeline li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; margin: 6px 0; border-radius: 10px; background: var(--panel); }
 .timeline .time { width: 54px; flex: none; font-size: 13px; color: var(--muted); line-height: 1.25; }
 .timeline .event { border-left: 4px solid var(--c); }
@@ -61,7 +62,7 @@ h3 { font-size: 15px; margin: 22px 0 6px; color: var(--muted); text-transform: u
 .timeline .plan.done span { text-decoration: line-through; color: var(--muted); }
 .timeline .now { background: none; padding: 0 0 0 64px; color: var(--now); font-size: 13px; border-top: 2px solid var(--now); border-radius: 0; }
 label { display: flex; gap: 10px; align-items: flex-start; flex: 1; }
-input[type=checkbox] { width: 20px; height: 20px; flex: none; margin: 1px 0 0; accent-color: var(--accent); }
+input[type=checkbox] { width: 22px; height: 22px; flex: none; margin: 1px 0 0; accent-color: var(--accent); }
 
 /* outlines */
 .outline { list-style: none; padding-left: 0; margin: 4px 0; }
@@ -111,3 +112,18 @@ select { width: 100%; font: inherit; color: inherit; background: var(--bg); bord
 .count { color: var(--muted); background: var(--panel); border-radius: 8px; padding: 0 6px; font-size: 12px; }
 .nnote { display: block; color: var(--muted); font-size: 13px; white-space: pre-wrap; }
 label.inline { display: inline-flex; align-items: center; }
+
+.row-item { gap: 6px; }
+.outline .row-item > input[type=checkbox] { margin-top: 2px; }
+.outline .row-item > span { padding-left: 4px; }
+.txt { flex: 1; min-height: 24px; padding: 1px 4px; border-radius: 6px; outline: none; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.txt:focus { background: var(--panel); }
+li.done > .row-item .txt { text-decoration: line-through; color: var(--muted); }
+.caret { width: 30px; flex: none; }
+.caret-sp { width: 30px; }
+.nnote { margin-left: 64px; }
+.editbar { position: sticky; top: 0; z-index: 5; display: flex; gap: 6px; padding: 6px 0; background: var(--bg); border-bottom: 1px solid var(--line); }
+.editbar button { flex: 1; font-size: 14px; padding: 8px 4px; white-space: nowrap; touch-action: manipulation; }
+.top > div { display: flex; gap: 2px; }
+.icon.undo { font-size: 22px; }
+#saving { color: var(--muted); font-size: 13px; }

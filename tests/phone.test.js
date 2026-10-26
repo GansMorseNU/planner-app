@@ -77,7 +77,7 @@ const srv = http.createServer((q, r) => {
   const f = files.get("/planner/data/this-week.md"); f.text = f.text.replace("bag for Sasha", "bag for Sasha (edited on Mac)"); f.rev = "r" + revN++;
   await p.check('input[data-item="sfocsw"]'); await p.waitForTimeout(800);
   const w2 = files.get("/planner/data/this-week.md").text;
-  ok(w2.includes("(edited on Mac)") && /- \[x\] ★ BJPS review.*\^sfocsw/.test(w2), "conflict: Mac edit kept and tick applied after reload");
+  ok(w2.includes("(edited on Mac)") && !/- \[x\] ★ BJPS review/.test(w2) && (await p.textContent("#banner")).includes("not"), "conflict: Mac edit kept, tick not forced over it, user told");
 
   // This Week view
   await p.click('.tabs button[data-view="week"]');
@@ -86,23 +86,56 @@ const srv = http.createServer((q, r) => {
   await p.screenshot({ path: "/tmp/claude-0/phone-week.png" });
 
   // Lists
+  const T = () => files.get("/planner/data/tasks.md").text;
+  const diffN = (x, y) => { const X = x.split("\n"), Y = y.split("\n"); let n = Math.abs(X.length - Y.length); X.forEach((l, i) => { if (l !== Y[i]) n++; }); return n; };
+  const settle = () => p.waitForTimeout(1200);
   await p.click('.tabs button[data-view="lists"]');
   ok((await p.textContent("#view-lists")).includes("PRIORITY - WORK"), "Lists shows the To-Do List");
   await p.click('button[data-toggle="1miudb"]');
   ok((await p.textContent("#view-lists")).includes("write austin wright"), "expanding a section shows its items");
+  const t0 = T();
+  await p.click('[data-edit="1miudb"]'); await settle();
+  ok(T() === t0, "tapping a section's text does not tick it (no file change)");
+  ok(await p.isVisible(".editbar"), "edit bar appears while editing");
+
+  // type into an item
+  await p.click('[data-edit="fr5b31"]'); await p.keyboard.press("End"); await p.keyboard.type(" soon"); await settle();
+  const t1 = T();
+  ok(/^    - \[ \] write austin wright about meeting up soon @added\(2026-10-23\) \^fr5b31$/m.test(t1) && diffN(t0, t1) === 1, "typing edits only that line, tags kept");
+  // Return at end -> new sibling below, then type
+  await p.keyboard.press("Enter"); await p.keyboard.type("new from phone"); await settle();
+  const t2 = T().split("\n"), k = t2.findIndex((l) => l.includes("new from phone"));
+  ok(/\^fr5b31$/.test(t2[k - 1]) && /^    - \[ \] new from phone @added\(2026-10-26\) \^[a-z0-9]{6}$/.test(t2[k]), "Return makes a new item right below, same level");
+  const nid = t2[k].slice(-6);
+  // indent -> child of austin item; outdent -> back
+  await p.click('.editbar [data-op="indent"]'); await settle();
+  ok(/^      - \[ \] new from phone/m.test(T()), "Indent makes it a child of the item above");
+  ok(await p.evaluate(() => document.activeElement?.dataset?.edit) === nid, "keeps typing focus after Indent");
+  await p.click('.editbar [data-op="outdent"]'); await settle();
+  ok(/^    - \[ \] new from phone/m.test(T()) && T().split("\n").findIndex((l) => l.includes("new from phone")) === k, "Outdent puts it back after its old parent");
+  // split in the middle
+  await p.keyboard.press("Home"); for (let i = 0; i < 4; i++) await p.keyboard.press("ArrowRight");
+  await p.keyboard.press("Enter"); await settle();
+  ok(/- \[ \] new @added\(2026-10-26\) \^/.test(T()) && /- \[ \] from phone @added\(2026-10-26\) \^/.test(T()), "Return in the middle splits the item");
+  // empty + backspace deletes
+  await p.keyboard.press("End"); await p.keyboard.press("Enter"); await p.keyboard.press("Backspace"); await settle();
+  ok(T().split("\n").length === t1.split("\n").length + 2, "Backspace on an empty new item removes it");
+  // a section with children is never deleted by Backspace
+  // undo all the way back to t0
+  await p.click('.editbar [data-op="done"]'); await settle();
+  for (let i = 0; i < 12 && T() !== t0; i++) { await p.click("#undo"); await settle(); }
+  ok(T() === t0, "Undo steps back to the original file, byte for byte");
+  // tick + undo
+  await p.check('input[data-litem="fr5b31"]'); await settle();
+  ok(/- \[x\] write austin wright.* @done\(2026-10-26\) \^fr5b31/.test(T()) && diffN(t0, T()) === 1, "ticking a To-Do item changes only its line");
+  await p.click("#undo"); await settle();
+  ok(T() === t0, "Undo un-ticks it");
   await p.screenshot({ path: "/tmp/claude-0/phone-lists.png" });
-  const t0 = files.get("/planner/data/tasks.md").text;
-  await p.check('input[data-litem="fr5b31"]'); await p.waitForTimeout(500);
-  const t1 = files.get("/planner/data/tasks.md").text;
-  ok(/- \[x\] write austin wright.* @done\(2026-10-26\) \^fr5b31/.test(t1) && t0.split("\n").filter((l, i) => l !== t1.split("\n")[i]).length === 1, "ticking a To-Do item changes only its line");
-  await p.click("details.add summary");
-  await p.fill("#add-text", "test item from phone");
-  await p.selectOption("#add-where", "1miudb");
-  await p.click("#add-go"); await p.waitForTimeout(500);
-  const t2 = files.get("/planner/data/tasks.md").text.split("\n");
-  const k = t2.findIndex((l) => l.includes("test item from phone"));
-  ok(k > 0 && /^    - \[ \] test item from phone @added\(2026-10-26\) \^[a-z0-9]{6}$/.test(t2[k]) && /\^1miudb$/.test(t2[k - 1]), "new item added as first child, desktop format");
-  ok(t2.length === t1.split("\n").length + 1, "nothing else changed");
+  // a conflict while typing: Mac changed the file -> nothing overwritten
+  const fx = files.get("/planner/data/tasks.md"); fx.text = fx.text.replace("finish survey on AI use", "finish survey on AI use (Mac)"); fx.rev = "r" + revN++;
+  await p.click('[data-edit="m3sbe5"]'); await p.keyboard.press("End"); await p.keyboard.type(" X"); await p.click('.editbar [data-op="done"]'); await p.waitForTimeout(2000);
+  ok(T().includes("(Mac)") && !T().includes("WCIAS X"), "conflict: Mac's change kept, phone edit not forced over it");
+  ok((await p.textContent("#banner")).includes("not"), "conflict: says the change wasn't saved");
   await p.click('button[data-list="ideas"]');
   ok((await p.textContent("#top-title")) === "Research Ideas", "switch to Research Ideas");
 

@@ -162,10 +162,11 @@ function setLineDone(text, id, done, date) {
 const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
 // ---------------------------------------------------------------- data
-const D = { files: {}, cal: null, routine: null, plan: null, planRev: "", week: null, weekRev: "", weekTree: [], loadedAt: 0, lists: [] };
+const D = { planText: "", files: {}, cal: null, routine: null, plan: null, planRev: "", week: null, weekRev: "", weekTree: [], loadedAt: 0, lists: [] };
 const PATHS = { cal: "/cache/calendar.json", routine: "/data/routine.json", plan: "/data/plan.json", lists: "/data/lists.json" };
 
-async function loadAll() {
+async function loadAll(force) {
+  if (!force && (SAVE.running || SAVE.dirty.size || L.editing)) return;   // never reload over unsaved edits
   setBusy(true);
   try {
     const lists = JSON.parse((await DBX.read(CFG.root + PATHS.lists))?.text || "[]");
@@ -175,53 +176,129 @@ async function loadAll() {
     D.weekPath = `${CFG.root}/data/${weekFile}`;
     D.cal = cal ? JSON.parse(cal.text) : { events: [], calendars: [] };
     D.routine = routine ? JSON.parse(routine.text) : {};
-    D.plan = plan ? JSON.parse(plan.text) : { blocks: [] }; D.planRev = plan?.rev || "";
+    D.planText = plan?.text || '{"blocks": []}\n'; D.plan = JSON.parse(D.planText); D.planRev = plan?.rev || "";
     D.week = week?.text || ""; D.weekRev = week?.rev || ""; D.weekTree = parseOutline(D.week);
     D.lists = lists.filter((l) => l.id !== "week");
     const texts = await Promise.all(D.lists.map((l) => DBX.read(`${CFG.root}/data/${l.file}`)));
     D.files = {};
     D.lists.forEach((l, i) => { D.files[l.id] = { path: `${CFG.root}/data/${l.file}`, text: texts[i]?.text || "", rev: texts[i]?.rev || "" }; });
     D.loadedAt = Date.now();
-    LS.set("cache", { cal: D.cal, routine: D.routine, plan: D.plan, week: D.week, at: D.loadedAt, lists: D.lists, files: D.files });
+    // Undo steps whose "after" text no longer matches the file (changed on the Mac) are dropped.
+    UNDO.stack = UNDO.stack.filter((u) => u.files.every((f) => localGet(f.path)?.text === f.after));
+    saveUndo(); cacheNow();
     hideBanner();
   } catch (e) {
     if (e instanceof NeedSignIn) return showSignIn();
     const c = LS.get("cache");
-    if (c && !D.loadedAt) { Object.assign(D, { cal: c.cal, routine: c.routine, plan: c.plan, week: c.week, weekTree: parseOutline(c.week || ""), loadedAt: c.at, lists: c.lists || [], files: c.files || {} }); }
+    if (c && !D.loadedAt) { Object.assign(D, { cal: c.cal, routine: c.routine, plan: c.plan, planText: c.planText || JSON.stringify(c.plan || { blocks: [] }, null, 1) + "\n", week: c.week, weekTree: parseOutline(c.week || ""), loadedAt: c.at, lists: c.lists || [], files: c.files || {} }); }
     showBanner(navigator.onLine ? `Couldn't load from Dropbox: ${esc(e.message)}` : "You're offline — showing the last loaded copy.");
   } finally { setBusy(false); }
-  render();
+  if (!L.editing) render();
 }
 
-/** Tick a planned block or a This Week line; keeps both in step (same rule as the desktop). */
-async function tick({ block, item }, done) {
-  for (let attempt = 0; attempt < 2; attempt++) {
+
+// ---------------------------------------------------------------- saving + undo
+// Every change is applied on screen at once and saved to Dropbox in the background, one file at a
+// time, each write revision-checked. If the file changed on the Mac meanwhile, nothing is
+// overwritten: the app reloads and says so. Undo restores the previous text of the files a change
+// touched (last 30 changes; it survives closing the app).
+function localGet(path) {
+  if (path === D.weekPath) return { text: D.week, rev: D.weekRev };
+  if (path === CFG.root + PATHS.plan) return { text: D.planText, rev: D.planRev };
+  const f = Object.values(D.files).find((x) => x.path === path);
+  return f ? { text: f.text, rev: f.rev } : null;
+}
+function localSet(path, text, rev) {
+  if (path === D.weekPath) { D.week = text; D.weekTree = parseOutline(text); if (rev !== undefined) D.weekRev = rev; return; }
+  if (path === CFG.root + PATHS.plan) { D.planText = text; D.plan = JSON.parse(text); if (rev !== undefined) D.planRev = rev; return; }
+  const f = Object.values(D.files).find((x) => x.path === path);
+  if (f) { f.text = text; if (rev !== undefined) f.rev = rev; }
+}
+const SAVE = { dirty: new Set(), running: null };
+const UNDO = { stack: LS.get("undo", []) };
+function saveUndo() { while (UNDO.stack.length > 30) UNDO.stack.shift(); try { LS.set("undo", UNDO.stack); } catch { UNDO.stack.splice(0, UNDO.stack.length - 3); LS.set("undo", UNDO.stack); } showUndo(); }
+function showUndo() { const b = $("#undo"); if (b) b.hidden = !UNDO.stack.length; }
+function cacheNow() { LS.set("cache", { cal: D.cal, routine: D.routine, plan: D.plan, planText: D.planText, week: D.week, at: D.loadedAt, lists: D.lists, files: D.files }); }
+
+/** Apply changes ({path: newText}) locally, remember them for Undo, save in the background. */
+function commit(changes, label, key) {
+  const files = [];
+  for (const [path, text] of Object.entries(changes)) {
+    const cur = localGet(path);
+    if (!cur || cur.text === text) continue;
+    files.push({ path, before: cur.text, after: text });
+    localSet(path, text);
+    SAVE.dirty.add(path);
+  }
+  if (!files.length) return false;
+  const top = UNDO.stack[UNDO.stack.length - 1];
+  if (key && top && top.key === key && top.files.length === files.length && top.files.every((f, i) => f.path === files[i].path)) {
+    top.files.forEach((f, i) => { f.after = files[i].after; });   // keep typing in one item as one undo step
+  } else UNDO.stack.push({ label, key, files, at: Date.now() });
+  saveUndo(); cacheNow(); flush();
+  return true;
+}
+async function flush() {
+  if (SAVE.running) return SAVE.running;
+  setSaving(true);
+  SAVE.running = (async () => {
     try {
-      const date = todayIso();
-      let week = D.week, plan = JSON.parse(JSON.stringify(D.plan));
-      const itemIds = block ? (plan.blocks.find((b) => b.id === block)?.items || []) : [item];
-      if (block) plan.blocks.find((b) => b.id === block).done = done;
-      for (const id of itemIds) week = setLineDone(week, id, done, date);
-      const tree = parseOutline(week), state = {};
-      (function walk(ns) { for (const n of ns) { state[n.id] = n.done; walk(n.children); } })(tree);
-      for (const b of plan.blocks) {
-        const ids = (b.items || []).filter((i) => i in state);
-        if (ids.length) b.done = ids.every((i) => state[i]);
+      while (SAVE.dirty.size) {
+        const path = [...SAVE.dirty][0];
+        SAVE.dirty.delete(path);
+        const cur = localGet(path);
+        const rev = await DBX.write(path, cur.text, cur.rev);
+        if (localGet(path).text === cur.text) localSet(path, cur.text, rev); else { localSet(path, localGet(path).text, rev); SAVE.dirty.add(path); }
       }
-      const planText = JSON.stringify(plan, null, 1) + "\n";
-      if (week !== D.week) D.weekRev = await DBX.write(D.weekPath, week, D.weekRev);
-      if (JSON.stringify(plan) !== JSON.stringify(D.plan)) D.planRev = await DBX.write(CFG.root + PATHS.plan, planText, D.planRev);
-      D.week = week; D.weekTree = tree; D.plan = plan;
-      render();
-      return;
     } catch (e) {
-      if (e instanceof Conflict && attempt === 0) { await loadAll(); continue; }   // changed on the Mac: reload, redo once
-      showBanner(e instanceof Conflict ? "That changed on another device. Reloaded — please tick again." : `Not saved: ${esc(e.message)}`);
-      render();
+      SAVE.dirty.clear();
+      UNDO.stack = UNDO.stack.filter((u) => u.at > Date.now());   // texts no longer match: Undo can't be trusted
+      saveUndo();
+      SAVE.running = null; setSaving(false);
+      const msg = e instanceof Conflict ? "That file had just changed on another device, so your last change was <b>not</b> saved. Reloaded — please redo it." : `Not saved: ${esc(e.message)}`;
+      if (L.editing) { L.editing = null; document.activeElement?.blur?.(); }
+      await loadAll(true);
+      showBanner(msg);
       return;
     }
-  }
+    SAVE.running = null; setSaving(false); cacheNow();
+  })();
+  return SAVE.running;
 }
+function undo() {
+  if (L.editing) saveText(L.editing);
+  const u = UNDO.stack.pop();
+  if (!u) return;
+  for (const f of u.files) if (localGet(f.path)?.text !== f.after) { saveUndo(); return showBanner("Can't undo that: the file has changed since."); }
+  for (const f of u.files) { localSet(f.path, f.before); SAVE.dirty.add(f.path); }
+  saveUndo(); cacheNow(); flush();
+  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  L.editing = null;
+  render();
+  showBanner(`Undone: ${esc(u.label)}.`); setTimeout(hideBanner, 2500);
+}
+function setSaving(b) { const el = $("#saving"); if (el) el.textContent = b ? "Saving…" : ""; }
+
+/** Tick a planned block or a This Week line; keeps both in step (same rule as the desktop). */
+function tick({ block, item }, done) {
+  const date = todayIso();
+  let week = D.week, plan = JSON.parse(D.planText || '{"blocks":[]}');
+  const b0 = block && plan.blocks.find((b) => b.id === block);
+  const itemIds = block ? (b0?.items || []) : [item];
+  if (b0) b0.done = done;
+  for (const id of itemIds) week = setLineDone(week, id, done, date);
+  const tree = parseOutline(week), state = {};
+  (function walk(ns) { for (const n of ns) { state[n.id] = n.done; walk(n.children); } })(tree);
+  for (const b of plan.blocks) {
+    const ids = (b.items || []).filter((i) => i in state);
+    if (ids.length) b.done = ids.every((i) => state[i]);
+  }
+  const planText = JSON.stringify(plan) === JSON.stringify(D.plan) ? D.planText : JSON.stringify(plan, null, 1) + "\n";
+  const title = b0 ? b0.title : (findNode(D.weekTree, item)?.text || "item");
+  commit({ [D.weekPath]: week, [CFG.root + PATHS.plan]: planText }, `${done ? "tick" : "untick"} “${title}”`);
+  render();
+}
+function findNode(ns, id) { for (const n of ns) { if (n.id === id) return n; const f = findNode(n.children, id); if (f) return f; } return null; }
 
 // ---------------------------------------------------------------- Today
 let dayOffset = 0;
@@ -279,7 +356,7 @@ function renderToday() {
     if (!nowShown && t.s > now) { h += `<li class="now"><span>${hm(now)} — now</span></li>`; nowShown = true; }
     const time = `<span class="time">${hm(t.s)}<br><small>${hm(t.e)}</small></span>`;
     if (t.kind === "plan") {
-      h += `<li class="plan ${esc(t.k || "work")}${t.done ? " done" : ""}">${time}<label><input type="checkbox" data-block="${esc(t.id)}"${t.done ? " checked" : ""}><span>${esc(t.title)}</span></label></li>`;
+      h += `<li class="plan ${esc(t.k || "work")}${t.done ? " done" : ""}">${time}<div class="row-item"><input type="checkbox" data-block="${esc(t.id)}"${t.done ? " checked" : ""}><span>${esc(t.title)}</span></div></li>`;
     } else if (t.kind === "routine") {
       h += `<li class="routine">${time}<span>${esc(t.title)}</span></li>`;
     } else {
@@ -300,7 +377,7 @@ function renderToday() {
 
 function renderNodes(nodes) {
   return "<ul class=\"outline\">" + nodes.map((n) =>
-    `<li class="${n.done ? "done" : ""}"><label><input type="checkbox" data-item="${esc(n.id)}"${n.done ? " checked" : ""}><span>${esc(n.text)}</span></label>` +
+    `<li class="${n.done ? "done" : ""}"><div class="row-item"><input type="checkbox" data-item="${esc(n.id)}"${n.done ? " checked" : ""}><span>${esc(n.text)}</span></div>` +
     (n.children.length ? renderNodes(n.children) : "") + "</li>").join("") + "</ul>";
 }
 
@@ -314,39 +391,70 @@ function renderWeek() {
 
 
 // ---------------------------------------------------------------- Lists (To-Do List, Research Pipeline, Research Ideas)
-// Jordan ticks and adds items here himself. (Claude never ticks the To-Do List without his okay;
-// that rule is for the chat, not for his own taps.)
-const L = { cur: LS.get("list_cur", "todo"), open: new Set(LS.get("list_open", [])), showDone: LS.get("list_done", false) };
+// Edited in place like Workflowy: tap text to type; Return makes a new item below (or the first
+// child of an open item); Backspace on an empty item removes it; the bar above the list indents,
+// outdents and finishes. Open/closed state is kept on this phone only.
+// (Claude never ticks the To-Do List without Jordan's okay; that rule is for the chat, not his taps.)
+const L = { cur: LS.get("list_cur", "todo"), open: new Set(LS.get("list_open", [])), showDone: LS.get("list_done", false), editing: null, timer: null };
 const saveOpen = () => LS.set("list_open", [...L.open].slice(-3000));
+const isOpen = (id, depth) => L.open.has(id) || (depth === 0 && !L.open.has("-" + id));
+function setOpen(id, depth, open) {
+  if (depth === 0) { if (open) L.open.delete("-" + id); else L.open.add("-" + id); L.open.delete(id); }
+  else if (open) L.open.add(id); else L.open.delete(id);
+  saveOpen();
+}
 
 function renderLists() {
   const list = D.lists.find((l) => l.id === L.cur) || D.lists[0];
   $("#top-title").textContent = list ? list.title : "Lists";
-  $("#top-sub").textContent = "";
+  $("#top-sub").innerHTML = '<span id="saving"></span>';
   if (!list) { $("#view-lists").innerHTML = '<p class="note">No lists found.</p>'; return; }
   L.cur = list.id;
   const tree = parseOutline(D.files[list.id]?.text || "");
   const visible = (n) => L.showDone || !n.done;
-  const sections = [];
-  (function walk(ns, path, depth) { for (const n of ns) { if (!n.done && depth < 2) { sections.push({ id: n.id, label: [...path, n.text].join(" › ") }); walk(n.children, [...path, n.text], depth + 1); } } })(tree, [], 0);
   const node = (n, depth) => {
-    const kids = n.children.filter(visible);
-    const open = L.open.has(n.id) || (depth === 0 && !L.open.has("-" + n.id));
-    return `<li class="${n.done ? "done" : ""}"><div class="row-item">` +
+    const kids = n.children.filter(visible), open = isOpen(n.id, depth);
+    return `<li class="${n.done ? "done" : ""}" data-depth="${depth}"><div class="row-item">` +
       (kids.length ? `<button class="caret${open ? " open" : ""}" data-toggle="${esc(n.id)}" data-depth="${depth}" aria-label="Expand">›</button>` : '<span class="caret-sp"></span>') +
-      `<label><input type="checkbox" data-litem="${esc(n.id)}"${n.done ? " checked" : ""}><span>${esc(n.text)}${n.note ? `<small class="nnote">${esc(n.note)}</small>` : ""}${kids.length && !open ? ` <small class="count">${kids.length}</small>` : ""}</span></label></div>` +
+      `<input type="checkbox" data-litem="${esc(n.id)}"${n.done ? " checked" : ""}>` +
+      `<div class="txt" contenteditable="true" spellcheck="true" autocapitalize="sentences" data-edit="${esc(n.id)}" data-depth="${depth}" data-haskids="${kids.length ? 1 : 0}">${esc(n.text)}</div>` +
+      (kids.length && !open ? `<small class="count">${kids.length}</small>` : "") + `</div>` +
+      (n.note ? `<small class="nnote">${esc(n.note)}</small>` : "") +
       (kids.length && open ? `<ul class="outline">${kids.map((k) => node(k, depth + 1)).join("")}</ul>` : "") + "</li>";
   };
-  $("#view-lists").innerHTML =
+  const items = tree.filter(visible);
+  L.redrawing = true;
+  try { $("#view-lists").innerHTML =
+    `<div class="editbar" hidden><button data-op="outdent">⇤ Outdent</button><button data-op="indent">Indent ⇥</button><button data-op="undo">↶ Undo</button><button data-op="done" class="primary">Done</button></div>` +
     `<div class="listnav">${D.lists.map((l) => `<button data-list="${esc(l.id)}" class="${l.id === list.id ? "on" : ""}">${esc(l.title)}</button>`).join("")}</div>` +
-    `<details class="add"${L.adding ? " open" : ""}><summary>＋ Add an item</summary>
-       <input id="add-text" placeholder="New item" autocomplete="off">
-       <select id="add-where"><option value="">At the top of ${esc(list.title)}</option>${sections.map((x) => `<option value="${esc(x.id)}"${x.id === L.lastWhere ? " selected" : ""}>Under: ${esc(x.label.length > 70 ? x.label.slice(0, 67) + "…" : x.label)}</option>`).join("")}</select>
-       <button id="add-go" class="primary">Add</button></details>` +
-    `<ul class="outline tree">${tree.filter(visible).map((n) => node(n, 0)).join("")}</ul>` +
+    `<ul class="outline tree">${items.map((n) => node(n, 0)).join("")}</ul>` +
+    (items.length ? "" : '<p><button data-op="first">＋ Start the list</button></p>') +
     `<p class="small"><label class="inline"><input type="checkbox" id="show-done"${L.showDone ? " checked" : ""}> Show completed items</label></p>`;
+  } finally { L.redrawing = false; }
+  if (L.editing) $(".editbar").hidden = false;
 }
 
+// -- line-level operations on an outline file (everything else stays byte-identical)
+const lineOf = (lines, id) => lines.findIndex((l) => ITEM_RE.test(l) && new RegExp("\\^" + id + "\\s*$").test(l));
+const indentOf = (l) => l.match(/^[ \t]*/)[0].replace(/\t/g, "  ").length;
+function blockEnd(lines, i) {            // index after item i's notes and descendants
+  const ind = indentOf(lines[i]); let j = i + 1;
+  for (; j < lines.length; j++) {
+    const l = lines[j];
+    if (ITEM_RE.test(l)) { if (indentOf(l) <= ind) break; }
+    else if (!l.trim()) break;                    // a blank line ends the group
+  }
+  return j;
+}
+function splitLine(line) {               // {prefix, text, tags}
+  const prefix = line.match(/^[ \t]*[-*+] (?:\[[ xX]\] ?)?/)[0];
+  let rest = line.slice(prefix.length).replace(/\s+$/, ""), t, cut = rest.length;
+  let probe = rest;
+  while ((t = probe.match(TRAIL_RE))) { probe = probe.slice(0, t.index); cut = probe.length; }
+  return { prefix: prefix.endsWith(" ") ? prefix : prefix + " ", text: rest.slice(0, cut).trim(), tags: rest.slice(cut).trim() };
+}
+const joinLine = (p) => p.prefix + [p.text, p.tags].filter(Boolean).join(" ");
+const newLine = (indent, text) => " ".repeat(indent) + "- [ ] " + [text, `@added(${todayIso()})`, "^" + newItemId()].filter(Boolean).join(" ");
 function allIds() {
   const ids = new Set();
   const take = (t) => { for (const m of String(t).matchAll(/\^([a-z0-9]{6})\s*$/gm)) ids.add(m[1]); };
@@ -357,44 +465,113 @@ function newItemId() {
   const ids = allIds(), abc = "abcdefghijklmnopqrstuvwxyz0123456789";
   for (;;) { const id = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => abc[b % 36]).join(""); if (!ids.has(id)) return id; }
 }
-/** Insert a new open item as the first child of `parentId` (or first top-level item). */
-function insertLine(text, parentId, line) {
-  const lines = text.split("\n");
-  let at = 0, indent = "";
-  if (parentId) {
-    const i = lines.findIndex((l) => new RegExp("\\^" + parentId + "\\s*$").test(l));
-    if (i < 0) throw new Error("That section no longer exists.");
-    const pin = lines[i].match(/^[ \t]*/)[0];
-    at = i + 1;
-    while (at < lines.length && /^[ \t]*> /.test(lines[at])) at++;   // after its note lines
-    indent = pin + "  ";
-  } else {
-    while (at < lines.length && (!lines[at].trim() || lines[at].trim().startsWith("<!--"))) at++;
-  }
-  lines.splice(at, 0, indent + line);
-  return lines.join("\n");
+const listFile = () => D.files[L.cur];
+function editLines(fn, label, key) {
+  const f = listFile(), lines = f.text.split("\n");
+  const out = fn(lines);
+  if (out === false) return false;
+  return commit({ [f.path]: lines.join("\n") }, label, key);
 }
+const short = (t) => (t.length > 40 ? t.slice(0, 38) + "…" : t) || "empty item";
 
-/** Edit one list file (rev-checked); on a conflict reload and redo once. */
-async function editList(listId, fn) {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    const f = D.files[listId];
-    try {
-      const text = fn(f.text);
-      f.rev = await DBX.write(f.path, text, f.rev);
-      f.text = text;
-      LS.set("cache", { ...(LS.get("cache") || {}), files: D.files });
-      render();
-      return true;
-    } catch (e) {
-      if (e instanceof Conflict && attempt === 0) { await loadAll(); continue; }
-      showBanner(e instanceof Conflict ? "That list changed on another device. Reloaded — please try again." : `Not saved: ${esc(e.message)}`);
-      render();
-      return false;
-    }
-  }
+function saveText(id) {
+  const el = document.querySelector(`[data-edit="${id}"]`);
+  if (!el) return;
+  const text = el.innerText.replace(/\s+/g, " ").trim();
+  editLines((lines) => {
+    const i = lineOf(lines, id); if (i < 0) return false;
+    const p = splitLine(lines[i]); if (p.text === text) return false;
+    p.text = text; lines[i] = joinLine(p);
+  }, `edit “${short(text)}”`, "edit:" + id);
 }
+function caretOffset(el) {
+  const sel = getSelection(); if (!sel.rangeCount) return el.innerText.length;
+  const r = sel.getRangeAt(0).cloneRange(); r.selectNodeContents(el); r.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
+  return r.toString().length;
+}
+function focusItem(id, offset) {
+  const el = document.querySelector(`[data-edit="${id}"]`);
+  if (!el) return;
+  el.focus();
+  const node = el.firstChild, r = document.createRange();
+  if (node && node.nodeType === 3) { const o = offset === "end" || offset === undefined ? node.length : Math.min(offset, node.length); r.setStart(node, o); }
+  else r.selectNodeContents(el), r.collapse(offset === 0);
+  r.collapse(true);
+  const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  el.scrollIntoView({ block: "nearest" });
+}
+function rerenderAndFocus(id, offset) { L.editing = id; renderLists(); focusItem(id, offset); }
 
+function onEnter(el) {
+  const id = el.dataset.edit, full = el.innerText.replace(/\n/g, ""), at = caretOffset(el);
+  const head = full.slice(0, at).replace(/\s+/g, " ").trim(), tail = full.slice(at).replace(/\s+/g, " ").trim();
+  const asChild = el.dataset.haskids === "1" && isOpen(id, Number(el.dataset.depth)) && !tail;
+  let newId = null;
+  editLines((lines) => {
+    const i = lineOf(lines, id); if (i < 0) return false;
+    const p = splitLine(lines[i]); p.text = head; lines[i] = joinLine(p);
+    const ind = indentOf(lines[i]);
+    let at2 = i + 1;
+    if (asChild) { while (at2 < lines.length && !ITEM_RE.test(lines[at2]) && lines[at2].trim()) at2++; }
+    else at2 = blockEnd(lines, i);
+    const nl = newLine(asChild ? ind + 2 : ind, tail);
+    newId = nl.match(/\^([a-z0-9]{6})$/)[1];
+    lines.splice(at2, 0, nl);
+  }, tail ? `split “${short(head)}”` : "new item");
+  if (newId) rerenderAndFocus(newId, 0);
+}
+function onBackspaceEmpty(el) {
+  const id = el.dataset.edit;
+  const all = [...document.querySelectorAll("[data-edit]")], k = all.indexOf(el), prev = all[k - 1];
+  let ok = false;
+  editLines((lines) => {
+    const i = lineOf(lines, id); if (i < 0) return false;
+    const end = blockEnd(lines, i);
+    if (lines.slice(i + 1, end).some((l) => ITEM_RE.test(l))) return false;   // never delete an item that has children
+    lines.splice(i, end - i); ok = true;
+  }, "delete empty item");
+  if (ok) { if (prev) rerenderAndFocus(prev.dataset.edit, "end"); else { L.editing = null; renderLists(); } }
+}
+function indent(id) {
+  let parent = null;
+  editLines((lines) => {
+    const i = lineOf(lines, id); if (i < 0) return false;
+    const ind = indentOf(lines[i]); let k = i - 1;
+    while (k >= 0 && (!ITEM_RE.test(lines[k]) || indentOf(lines[k]) > ind)) k--;
+    if (k < 0 || indentOf(lines[k]) !== ind) return false;          // no item above at the same level
+    parent = lines[k].match(/\^([a-z0-9]{6})\s*$/)?.[1];
+    const end = blockEnd(lines, i);
+    for (let j = i; j < end; j++) if (lines[j].trim()) lines[j] = "  " + lines[j];
+  }, "indent");
+  if (parent) { const pe = document.querySelector(`[data-edit="${parent}"]`); setOpen(parent, pe ? Number(pe.dataset.depth) : 1, true); }
+}
+function outdent(id) {
+  editLines((lines) => {
+    const i = lineOf(lines, id); if (i < 0) return false;
+    const ind = indentOf(lines[i]); if (ind < 2) return false;
+    let p = i - 1;
+    while (p >= 0 && (!ITEM_RE.test(lines[p]) || indentOf(lines[p]) >= ind)) p--;
+    if (p < 0) return false;
+    const end = blockEnd(lines, i), pEnd = blockEnd(lines, p);
+    const block = lines.splice(i, end - i).map((l) => l.replace(/^  /, ""));
+    lines.splice(pEnd - block.length, 0, ...block);                   // right after its old parent's group
+  }, "outdent");
+}
+function editOp(op) {
+  const id = L.editing;
+  if (op === "undo") return undo();
+  if (op === "done") { if (id) saveText(id); L.editing = null; document.activeElement?.blur?.(); return renderLists(); }
+  if (op === "first") {
+    let nid = null;
+    editLines((lines) => { let at = 0; while (at < lines.length && (!lines[at].trim() || lines[at].trim().startsWith("<!--"))) at++; const nl = newLine(0, ""); nid = nl.slice(-6); lines.splice(at, 0, nl); }, "new item");
+    return nid && rerenderAndFocus(nid, 0);
+  }
+  if (!id) return;
+  const el = document.querySelector(`[data-edit="${id}"]`), off = el ? caretOffset(el) : "end";
+  saveText(id);
+  if (op === "indent") indent(id); else outdent(id);
+  rerenderAndFocus(id, off);
+}
 // ---------------------------------------------------------------- Ask Claude (mailbox + GitHub job)
 const CHAT = {
   conv() { let c = LS.get("chat_conv"); if (!c) { c = "c" + Date.now().toString(36); LS.set("chat_conv", c); } return c; },
@@ -528,23 +705,9 @@ document.addEventListener("click", async (e) => {
   if (t.dataset.day !== undefined && t.closest(".daynav")) { dayOffset = t.dataset.day === "0" ? 0 : dayOffset + Number(t.dataset.day); return renderToday(); }
   if (t.id === "refresh") return loadAll();
   if (t.dataset.list) { L.cur = t.dataset.list; LS.set("list_cur", L.cur); return renderLists(); }
-  if (t.dataset.toggle) {
-    const id = t.dataset.toggle, top = t.dataset.depth === "0", isOpen = t.classList.contains("open");
-    if (top) { isOpen ? L.open.add("-" + id) : L.open.delete("-" + id); }
-    isOpen ? L.open.delete(id) : (top || L.open.add(id));
-    saveOpen(); return renderLists();
-  }
-  if (t.id === "add-go") {
-    const text = $("#add-text").value.trim().replace(/\s+/g, " "), where = $("#add-where").value;
-    if (!text) return;
-    L.lastWhere = where; L.adding = true;
-    const line = `- [ ] ${text} @added(${todayIso()}) ^${newItemId()}`;
-    if (await editList(L.cur, (txt) => insertLine(txt, where, line))) {
-      if (where) { L.open.add(where); L.open.delete("-" + where); saveOpen(); renderLists(); }
-      showBanner("Added."); setTimeout(hideBanner, 2000);
-    }
-    return;
-  }
+  if (t.dataset.toggle) { setOpen(t.dataset.toggle, Number(t.dataset.depth), !t.classList.contains("open")); return renderLists(); }
+  if (t.id === "undo") return undo();
+  if (t.dataset.op === "first") return editOp("first");
   if (t.dataset.say) return sendChat(t.dataset.say);
   if (t.id === "chat-send") { const v = $("#chat-input").value; $("#chat-input").value = ""; return sendChat(v); }
   if (t.id === "chat-new") { LS.set("chat_conv", null); return renderChat(); }
@@ -566,18 +729,52 @@ document.addEventListener("change", (e) => {
   const c = e.target;
   if (c.dataset.block) tick({ block: c.dataset.block }, c.checked);
   else if (c.dataset.item) tick({ item: c.dataset.item }, c.checked);
-  else if (c.dataset.litem) editList(L.cur, (txt) => setLineDone(txt, c.dataset.litem, c.checked, todayIso()));
+  else if (c.dataset.litem) {
+    const id = c.dataset.litem, f = listFile(), n = findNode(parseOutline(f.text), id);
+    commit({ [f.path]: setLineDone(f.text, id, c.checked, todayIso()) }, `${c.checked ? "tick" : "untick"} “${short(n?.text || "")}”`);
+    setTimeout(renderLists, c.checked && !L.showDone ? 350 : 0);
+  }
   else if (c.id === "show-done") { L.showDone = c.checked; LS.set("list_done", L.showDone); renderLists(); }
 });
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && DBX.signedIn() && Date.now() - D.loadedAt > 60e3) loadAll(); });
+// editing in the Lists tab
+document.addEventListener("focusin", (e) => {
+  const el = e.target.closest?.("[data-edit]"); if (!el) return;
+  if (L.editing && L.editing !== el.dataset.edit) saveText(L.editing);
+  L.editing = el.dataset.edit; const bar = $(".editbar"); if (bar) bar.hidden = false;
+});
+document.addEventListener("focusout", (e) => {
+  const el = e.target.closest?.("[data-edit]"); if (!el) return;
+  if (!L.redrawing) saveText(el.dataset.edit);   // not while the list is being redrawn (Return, Indent…): the old line's text is stale
+  setTimeout(() => { if (!document.activeElement?.closest?.("[data-edit]")) { L.editing = null; const bar = $(".editbar"); if (bar) bar.hidden = true; } }, 150);
+});
+document.addEventListener("input", (e) => {
+  const el = e.target.closest?.("[data-edit]"); if (!el) return;
+  clearTimeout(L.timer); L.timer = setTimeout(() => saveText(el.dataset.edit), 800);
+});
+document.addEventListener("keydown", (e) => {
+  const el = e.target.closest?.("[data-edit]"); if (!el || e.isComposing) return;
+  if (e.key === "Enter") { e.preventDefault(); clearTimeout(L.timer); onEnter(el); }
+  else if (e.key === "Backspace" && !el.innerText.trim() && caretOffset(el) === 0) { e.preventDefault(); onBackspaceEmpty(el); }
+});
+document.addEventListener("beforeinput", (e) => {   // some iPhone keyboards send Return only as an input event
+  const el = e.target.closest?.("[data-edit]"); if (!el) return;
+  if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") { e.preventDefault(); clearTimeout(L.timer); onEnter(el); }
+});
+// The edit bar acts on press, so the keyboard stays up.
+document.addEventListener("pointerdown", (e) => {
+  const b = e.target.closest?.(".editbar [data-op]"); if (!b) return;
+  e.preventDefault(); editOp(b.dataset.op);
+});
+document.addEventListener("mousedown", (e) => { if (e.target.closest?.(".editbar")) e.preventDefault(); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden" && L.editing) saveText(L.editing); if (document.visibilityState === "visible" && DBX.signedIn() && Date.now() - D.loadedAt > 60e3) loadAll(); });
 
 async function start() {
   try { await DBX.finishRedirect(); } catch (e) { return showSignIn(e.message); }
   if (!DBX.signedIn()) return showSignIn();
   $("#signin").hidden = true; $("#main").hidden = false;
-  switchView(view);
+  switchView(view); showUndo();
   const c = LS.get("cache");
-  if (c) { Object.assign(D, { cal: c.cal, routine: c.routine, plan: c.plan, week: c.week, weekTree: parseOutline(c.week || ""), loadedAt: c.at, lists: c.lists || [], files: c.files || {} }); render(); }
+  if (c) { Object.assign(D, { cal: c.cal, routine: c.routine, plan: c.plan, planText: c.planText || JSON.stringify(c.plan || { blocks: [] }, null, 1) + "\n", week: c.week, weekTree: parseOutline(c.week || ""), loadedAt: c.at, lists: c.lists || [], files: c.files || {} }); render(); }
   await loadAll();
   pollChat();
 }
