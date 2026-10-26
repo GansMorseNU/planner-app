@@ -12,7 +12,7 @@
 "use strict";
 
 const CFG = {
-  appKey: "bkc7x82s2nknxp1",           // the same Dropbox app as the Finances phone app
+  appKey: "mw2vh3rfqkxtawf",           // Dropbox app "Planner phone" (Full Dropbox; separate from Finances)
   root: "/Planner",
   repo: "GansMorseNU/planner-app",
   workflow: "ask-claude.yml",

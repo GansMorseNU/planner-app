@@ -19,9 +19,9 @@ The iPhone side of Jordan's Planner (`~/Dropbox/Planner`). Two parts:
 ## Setup (once)
 
 1. Repository secrets (Settings → Secrets and variables → Actions):
-   `CLAUDE_CODE_OAUTH_TOKEN`, `DROPBOX_APP_KEY` (`bkc7x82s2nknxp1`), `DROPBOX_REFRESH_TOKEN`.
+   `CLAUDE_CODE_OAUTH_TOKEN`, `DROPBOX_APP_KEY` (`mw2vh3rfqkxtawf`), `DROPBOX_REFRESH_TOKEN`.
 2. Settings → Pages → Source: **GitHub Actions** (the "Publish phone app" job does the rest).
-3. Dropbox app console (app `bkc7x82s2nknxp1`): add redirect URI
+3. Dropbox app console (app `mw2vh3rfqkxtawf`): add redirect URI
    `https://gansmorsenu.github.io/planner-app/`.
 4. On the phone: open the page in Safari → Share → Add to Home Screen; sign in to Dropbox;
    in Settings paste a fine-grained GitHub token limited to this repository with
