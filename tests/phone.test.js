@@ -5,7 +5,7 @@ const fs = require("fs"), path = require("path"), http = require("http");
 const ROOT = process.argv[2], APP = path.join(__dirname, "..", "app");
 const files = new Map(); let revN = 1;
 function load(rel) { const p = path.join(ROOT, rel); if (fs.existsSync(p)) files.set("/planner/" + rel.toLowerCase(), { text: fs.readFileSync(p, "utf8"), rev: "r" + revN++, name: rel }); }
-["cache/calendar.json", "data/routine.json", "data/plan.json", "data/lists.json", "data/this-week.md"].forEach(load);
+["cache/calendar.json", "data/routine.json", "data/plan.json", "data/lists.json", "data/this-week.md", "data/tasks.md", "data/research-pipeline.md", "data/research-ideas.md"].forEach(load);
 const dispatched = [];
 const fail = (m) => { console.error("FAIL:", m); process.exitCode = 1; };
 const ok = (c, m) => c ? console.log("ok  ", m) : fail(m);
@@ -49,7 +49,7 @@ const srv = http.createServer((q, r) => {
   const p = await ctx.newPage();
   const errs = []; p.on("pageerror", (e) => errs.push(e.message));
   await p.goto("http://localhost:8811/");
-  await p.waitForSelector("#view-today .timeline li");
+  await p.waitForSelector("#view-today .timeline li.plan");
   const today = await p.textContent("#view-today");
   ok(today.includes("call with tanner"), "Today shows Google event");
   ok(today.includes("School pickup"), "Today shows routine pickup");
@@ -84,6 +84,27 @@ const srv = http.createServer((q, r) => {
   ok((await p.textContent("#view-week")).includes("TOP 3 THIS WEEK"), "This Week view lists sections");
   ok(await p.locator("#view-week li.done").count() >= 2, "done items shown crossed out, not hidden");
   await p.screenshot({ path: "/tmp/claude-0/phone-week.png" });
+
+  // Lists
+  await p.click('.tabs button[data-view="lists"]');
+  ok((await p.textContent("#view-lists")).includes("PRIORITY - WORK"), "Lists shows the To-Do List");
+  await p.click('button[data-toggle="1miudb"]');
+  ok((await p.textContent("#view-lists")).includes("write austin wright"), "expanding a section shows its items");
+  await p.screenshot({ path: "/tmp/claude-0/phone-lists.png" });
+  const t0 = files.get("/planner/data/tasks.md").text;
+  await p.check('input[data-litem="fr5b31"]'); await p.waitForTimeout(500);
+  const t1 = files.get("/planner/data/tasks.md").text;
+  ok(/- \[x\] write austin wright.* @done\(2026-10-26\) \^fr5b31/.test(t1) && t0.split("\n").filter((l, i) => l !== t1.split("\n")[i]).length === 1, "ticking a To-Do item changes only its line");
+  await p.click("details.add summary");
+  await p.fill("#add-text", "test item from phone");
+  await p.selectOption("#add-where", "1miudb");
+  await p.click("#add-go"); await p.waitForTimeout(500);
+  const t2 = files.get("/planner/data/tasks.md").text.split("\n");
+  const k = t2.findIndex((l) => l.includes("test item from phone"));
+  ok(k > 0 && /^    - \[ \] test item from phone @added\(2026-10-26\) \^[a-z0-9]{6}$/.test(t2[k]) && /\^1miudb$/.test(t2[k - 1]), "new item added as first child, desktop format");
+  ok(t2.length === t1.split("\n").length + 1, "nothing else changed");
+  await p.click('button[data-list="ideas"]');
+  ok((await p.textContent("#top-title")) === "Research Ideas", "switch to Research Ideas");
 
   // chat
   await p.click('.tabs button[data-view="chat"]');

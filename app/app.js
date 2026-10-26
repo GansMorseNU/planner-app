@@ -162,7 +162,7 @@ function setLineDone(text, id, done, date) {
 const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
 // ---------------------------------------------------------------- data
-const D = { cal: null, routine: null, plan: null, planRev: "", week: null, weekRev: "", weekTree: [], loadedAt: 0, lists: [] };
+const D = { files: {}, cal: null, routine: null, plan: null, planRev: "", week: null, weekRev: "", weekTree: [], loadedAt: 0, lists: [] };
 const PATHS = { cal: "/cache/calendar.json", routine: "/data/routine.json", plan: "/data/plan.json", lists: "/data/lists.json" };
 
 async function loadAll() {
@@ -177,13 +177,17 @@ async function loadAll() {
     D.routine = routine ? JSON.parse(routine.text) : {};
     D.plan = plan ? JSON.parse(plan.text) : { blocks: [] }; D.planRev = plan?.rev || "";
     D.week = week?.text || ""; D.weekRev = week?.rev || ""; D.weekTree = parseOutline(D.week);
+    D.lists = lists.filter((l) => l.id !== "week");
+    const texts = await Promise.all(D.lists.map((l) => DBX.read(`${CFG.root}/data/${l.file}`)));
+    D.files = {};
+    D.lists.forEach((l, i) => { D.files[l.id] = { path: `${CFG.root}/data/${l.file}`, text: texts[i]?.text || "", rev: texts[i]?.rev || "" }; });
     D.loadedAt = Date.now();
-    LS.set("cache", { cal: D.cal, routine: D.routine, plan: D.plan, week: D.week, at: D.loadedAt });
+    LS.set("cache", { cal: D.cal, routine: D.routine, plan: D.plan, week: D.week, at: D.loadedAt, lists: D.lists, files: D.files });
     hideBanner();
   } catch (e) {
     if (e instanceof NeedSignIn) return showSignIn();
     const c = LS.get("cache");
-    if (c && !D.loadedAt) { Object.assign(D, { cal: c.cal, routine: c.routine, plan: c.plan, week: c.week, weekTree: parseOutline(c.week || ""), loadedAt: c.at }); }
+    if (c && !D.loadedAt) { Object.assign(D, { cal: c.cal, routine: c.routine, plan: c.plan, week: c.week, weekTree: parseOutline(c.week || ""), loadedAt: c.at, lists: c.lists || [], files: c.files || {} }); }
     showBanner(navigator.onLine ? `Couldn't load from Dropbox: ${esc(e.message)}` : "You're offline — showing the last loaded copy.");
   } finally { setBusy(false); }
   render();
@@ -308,6 +312,89 @@ function renderWeek() {
     : '<p class="note">No This Week list yet.</p>';
 }
 
+
+// ---------------------------------------------------------------- Lists (To-Do List, Research Pipeline, Research Ideas)
+// Jordan ticks and adds items here himself. (Claude never ticks the To-Do List without his okay;
+// that rule is for the chat, not for his own taps.)
+const L = { cur: LS.get("list_cur", "todo"), open: new Set(LS.get("list_open", [])), showDone: LS.get("list_done", false) };
+const saveOpen = () => LS.set("list_open", [...L.open].slice(-3000));
+
+function renderLists() {
+  const list = D.lists.find((l) => l.id === L.cur) || D.lists[0];
+  $("#top-title").textContent = list ? list.title : "Lists";
+  $("#top-sub").textContent = "";
+  if (!list) { $("#view-lists").innerHTML = '<p class="note">No lists found.</p>'; return; }
+  L.cur = list.id;
+  const tree = parseOutline(D.files[list.id]?.text || "");
+  const visible = (n) => L.showDone || !n.done;
+  const sections = [];
+  (function walk(ns, path, depth) { for (const n of ns) { if (!n.done && depth < 2) { sections.push({ id: n.id, label: [...path, n.text].join(" › ") }); walk(n.children, [...path, n.text], depth + 1); } } })(tree, [], 0);
+  const node = (n, depth) => {
+    const kids = n.children.filter(visible);
+    const open = L.open.has(n.id) || (depth === 0 && !L.open.has("-" + n.id));
+    return `<li class="${n.done ? "done" : ""}"><div class="row-item">` +
+      (kids.length ? `<button class="caret${open ? " open" : ""}" data-toggle="${esc(n.id)}" data-depth="${depth}" aria-label="Expand">›</button>` : '<span class="caret-sp"></span>') +
+      `<label><input type="checkbox" data-litem="${esc(n.id)}"${n.done ? " checked" : ""}><span>${esc(n.text)}${n.note ? `<small class="nnote">${esc(n.note)}</small>` : ""}${kids.length && !open ? ` <small class="count">${kids.length}</small>` : ""}</span></label></div>` +
+      (kids.length && open ? `<ul class="outline">${kids.map((k) => node(k, depth + 1)).join("")}</ul>` : "") + "</li>";
+  };
+  $("#view-lists").innerHTML =
+    `<div class="listnav">${D.lists.map((l) => `<button data-list="${esc(l.id)}" class="${l.id === list.id ? "on" : ""}">${esc(l.title)}</button>`).join("")}</div>` +
+    `<details class="add"${L.adding ? " open" : ""}><summary>＋ Add an item</summary>
+       <input id="add-text" placeholder="New item" autocomplete="off">
+       <select id="add-where"><option value="">At the top of ${esc(list.title)}</option>${sections.map((x) => `<option value="${esc(x.id)}"${x.id === L.lastWhere ? " selected" : ""}>Under: ${esc(x.label.length > 70 ? x.label.slice(0, 67) + "…" : x.label)}</option>`).join("")}</select>
+       <button id="add-go" class="primary">Add</button></details>` +
+    `<ul class="outline tree">${tree.filter(visible).map((n) => node(n, 0)).join("")}</ul>` +
+    `<p class="small"><label class="inline"><input type="checkbox" id="show-done"${L.showDone ? " checked" : ""}> Show completed items</label></p>`;
+}
+
+function allIds() {
+  const ids = new Set();
+  const take = (t) => { for (const m of String(t).matchAll(/\^([a-z0-9]{6})\s*$/gm)) ids.add(m[1]); };
+  Object.values(D.files).forEach((f) => take(f.text)); take(D.week);
+  return ids;
+}
+function newItemId() {
+  const ids = allIds(), abc = "abcdefghijklmnopqrstuvwxyz0123456789";
+  for (;;) { const id = Array.from(crypto.getRandomValues(new Uint8Array(6)), (b) => abc[b % 36]).join(""); if (!ids.has(id)) return id; }
+}
+/** Insert a new open item as the first child of `parentId` (or first top-level item). */
+function insertLine(text, parentId, line) {
+  const lines = text.split("\n");
+  let at = 0, indent = "";
+  if (parentId) {
+    const i = lines.findIndex((l) => new RegExp("\\^" + parentId + "\\s*$").test(l));
+    if (i < 0) throw new Error("That section no longer exists.");
+    const pin = lines[i].match(/^[ \t]*/)[0];
+    at = i + 1;
+    while (at < lines.length && /^[ \t]*> /.test(lines[at])) at++;   // after its note lines
+    indent = pin + "  ";
+  } else {
+    while (at < lines.length && (!lines[at].trim() || lines[at].trim().startsWith("<!--"))) at++;
+  }
+  lines.splice(at, 0, indent + line);
+  return lines.join("\n");
+}
+
+/** Edit one list file (rev-checked); on a conflict reload and redo once. */
+async function editList(listId, fn) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const f = D.files[listId];
+    try {
+      const text = fn(f.text);
+      f.rev = await DBX.write(f.path, text, f.rev);
+      f.text = text;
+      LS.set("cache", { ...(LS.get("cache") || {}), files: D.files });
+      render();
+      return true;
+    } catch (e) {
+      if (e instanceof Conflict && attempt === 0) { await loadAll(); continue; }
+      showBanner(e instanceof Conflict ? "That list changed on another device. Reloaded — please try again." : `Not saved: ${esc(e.message)}`);
+      render();
+      return false;
+    }
+  }
+}
+
 // ---------------------------------------------------------------- Ask Claude (mailbox + GitHub job)
 const CHAT = {
   conv() { let c = LS.get("chat_conv"); if (!c) { c = "c" + Date.now().toString(36); LS.set("chat_conv", c); } return c; },
@@ -416,7 +503,7 @@ function renderSettings() {
 let view = LS.get("view", "today");
 function switchView(v) {
   view = v; LS.set("view", v);
-  for (const s of ["today", "week", "chat", "settings"]) $("#view-" + s).hidden = s !== v;
+  for (const s of ["today", "week", "lists", "chat", "settings"]) $("#view-" + s).hidden = s !== v;
   document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
   render();
   if (v === "chat") pollChat();
@@ -424,6 +511,7 @@ function switchView(v) {
 function render() {
   if (view === "today") renderToday();
   else if (view === "week") renderWeek();
+  else if (view === "lists") renderLists();
   else if (view === "chat") renderChat();
   else renderSettings();
 }
@@ -437,6 +525,24 @@ document.addEventListener("click", async (e) => {
   if (t.closest(".tabs button")) return switchView(t.closest("button").dataset.view);
   if (t.dataset.day !== undefined && t.closest(".daynav")) { dayOffset = t.dataset.day === "0" ? 0 : dayOffset + Number(t.dataset.day); return renderToday(); }
   if (t.id === "refresh") return loadAll();
+  if (t.dataset.list) { L.cur = t.dataset.list; LS.set("list_cur", L.cur); return renderLists(); }
+  if (t.dataset.toggle) {
+    const id = t.dataset.toggle, top = t.dataset.depth === "0", isOpen = t.classList.contains("open");
+    if (top) { isOpen ? L.open.add("-" + id) : L.open.delete("-" + id); }
+    isOpen ? L.open.delete(id) : (top || L.open.add(id));
+    saveOpen(); return renderLists();
+  }
+  if (t.id === "add-go") {
+    const text = $("#add-text").value.trim().replace(/\s+/g, " "), where = $("#add-where").value;
+    if (!text) return;
+    L.lastWhere = where; L.adding = true;
+    const line = `- [ ] ${text} @added(${todayIso()}) ^${newItemId()}`;
+    if (await editList(L.cur, (txt) => insertLine(txt, where, line))) {
+      if (where) { L.open.add(where); L.open.delete("-" + where); saveOpen(); renderLists(); }
+      showBanner("Added."); setTimeout(hideBanner, 2000);
+    }
+    return;
+  }
   if (t.dataset.say) return sendChat(t.dataset.say);
   if (t.id === "chat-send") { const v = $("#chat-input").value; $("#chat-input").value = ""; return sendChat(v); }
   if (t.id === "chat-new") { LS.set("chat_conv", null); return renderChat(); }
@@ -453,6 +559,8 @@ document.addEventListener("change", (e) => {
   const c = e.target;
   if (c.dataset.block) tick({ block: c.dataset.block }, c.checked);
   else if (c.dataset.item) tick({ item: c.dataset.item }, c.checked);
+  else if (c.dataset.litem) editList(L.cur, (txt) => setLineDone(txt, c.dataset.litem, c.checked, todayIso()));
+  else if (c.id === "show-done") { L.showDone = c.checked; LS.set("list_done", L.showDone); renderLists(); }
 });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && DBX.signedIn() && Date.now() - D.loadedAt > 60e3) loadAll(); });
 
@@ -462,7 +570,7 @@ async function start() {
   $("#signin").hidden = true; $("#main").hidden = false;
   switchView(view);
   const c = LS.get("cache");
-  if (c) { Object.assign(D, { cal: c.cal, routine: c.routine, plan: c.plan, week: c.week, weekTree: parseOutline(c.week || ""), loadedAt: c.at }); render(); }
+  if (c) { Object.assign(D, { cal: c.cal, routine: c.routine, plan: c.plan, week: c.week, weekTree: parseOutline(c.week || ""), loadedAt: c.at, lists: c.lists || [], files: c.files || {} }); render(); }
   await loadAll();
   pollChat();
 }
