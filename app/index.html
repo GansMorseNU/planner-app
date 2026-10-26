@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Planner">
+  <meta name="theme-color" content="#ffffff">
+  <title>Planner</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" href="icon.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="signin" class="signin" hidden>
+    <h1>Planner</h1>
+    <p>Sign in to Dropbox so the app can read and update your Planner folder.</p>
+    <button id="signin-btn" class="primary">Sign in with Dropbox</button>
+    <details class="paste">
+      <summary>Sign-in doesn't come back to the app?</summary>
+      <p>Use this instead: open the link, approve, copy the code Dropbox shows, paste it here.</p>
+      <button id="paste-start">Open Dropbox sign-in (code)</button>
+      <input id="paste-code" placeholder="Paste code" autocomplete="off">
+      <button id="paste-finish" class="primary">Finish sign-in</button>
+    </details>
+    <p id="signin-error" class="error"></p>
+  </div>
+
+  <div id="main" class="main" hidden>
+    <header class="top">
+      <div class="title"><b id="top-title">Today</b><span id="top-sub"></span></div>
+      <button id="refresh" class="icon" aria-label="Refresh">⟳</button>
+    </header>
+    <div id="banner" class="banner" hidden></div>
+
+    <section id="view-today" class="view"></section>
+    <section id="view-week" class="view" hidden></section>
+    <section id="view-chat" class="view chat" hidden>
+      <div id="chat-log" class="chat-log"></div>
+      <div class="chat-quick">
+        <button data-say="morning check-in">☀︎ Morning check-in</button>
+        <button data-say="evening check-in">☾ Evening check-in</button>
+        <button id="chat-new">New conversation</button>
+      </div>
+      <div class="chat-input">
+        <textarea id="chat-input" rows="1" placeholder="Message Claude"></textarea>
+        <button id="chat-send" class="primary">Send</button>
+      </div>
+    </section>
+    <section id="view-settings" class="view" hidden></section>
+
+    <nav class="tabs">
+      <button data-view="today" class="on">Today</button>
+      <button data-view="week">This Week</button>
+      <button data-view="chat">Ask Claude</button>
+      <button data-view="settings">Settings</button>
+    </nav>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
