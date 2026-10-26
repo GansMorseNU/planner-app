@@ -272,9 +272,14 @@ function undo() {
   for (const f of u.files) if (localGet(f.path)?.text !== f.after) { saveUndo(); return showBanner("Can't undo that: the file has changed since."); }
   for (const f of u.files) { localSet(f.path, f.before); SAVE.dirty.add(f.path); }
   saveUndo(); cacheNow(); flush();
-  if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+  // Redraw from the restored file. The line being edited still shows the undone text, so leaving
+  // it must not save that text again (L.redrawing); keep typing there if the item still exists.
+  const wasEditing = L.editing;
+  L.redrawing = true;
+  try { document.activeElement?.blur?.(); } finally { L.redrawing = false; }
   L.editing = null;
-  render();
+  if (wasEditing && view === "lists" && lineOf(listFile().text.split("\n"), wasEditing) >= 0) rerenderAndFocus(wasEditing, "end");
+  else render();
   showBanner(`Undone: ${esc(u.label)}.`); setTimeout(hideBanner, 2500);
 }
 function setSaving(b) { const el = $("#saving"); if (el) el.textContent = b ? "Saving…" : ""; }

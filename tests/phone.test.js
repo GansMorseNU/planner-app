@@ -125,6 +125,14 @@ const srv = http.createServer((q, r) => {
   await p.click('#editbar [data-op="done"]'); await settle();
   for (let i = 0; i < 12 && T() !== t0; i++) { await p.click("#undo"); await settle(); }
   ok(T() === t0, "Undo steps back to the original file, byte for byte");
+  // Undo from the bar while still typing (the iPhone case)
+  await p.click('[data-edit="fr5b31"]'); await p.keyboard.press("End"); await p.keyboard.type(" XYZ"); await settle();
+  ok(T().includes("meeting up XYZ"), "typed text saved");
+  await p.click('#editbar [data-op="undo"]'); await settle();
+  ok(T() === t0 && !(await p.textContent('[data-edit="fr5b31"]')).includes("XYZ"), "bar Undo while typing removes the typed text (file and screen)");
+  ok(await p.evaluate(() => document.activeElement?.dataset?.edit) === "fr5b31", "keyboard stays on that item after Undo");
+  await p.click('#editbar [data-op="done"]'); await settle();
+  ok(T() === t0, "closing the keyboard afterwards doesn't bring the text back");
   await p.click('[data-edit="fr5b31"]');
   const bb = await p.locator("#editbar").boundingBox(), vh = p.viewportSize().height;
   ok(bb && bb.y + bb.height <= vh + 1 && bb.y > vh / 2, "edit bar sits at the bottom of the visible area (above the keyboard)");
