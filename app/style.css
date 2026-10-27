@@ -137,5 +137,8 @@ body.editing .view { padding-bottom: 70px; }
 .timeline .blk .outline { margin: 4px 0 0; }
 .timeline .plan.done .btitle { text-decoration: line-through; color: var(--muted); }
 .todo-link { color: var(--muted); }
+.outline li.carried > .row-item > span { color: var(--muted); }
+.outline li.carried > .row-item > input { opacity: 0.45; }
+.carried-to { color: var(--muted); white-space: nowrap; }
 .timeline .blk .outline li { display: block; background: none; padding: 0; margin: 6px 0 0; border-radius: 0; }
 .timeline .blk .row-item .btitle { flex: 1; }

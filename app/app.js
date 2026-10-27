@@ -123,7 +123,7 @@ class Conflict extends Error { constructor(p) { super(p + " changed elsewhere");
 
 // ---------------------------------------------------------------- outline files (same format as desktop app/outline.py)
 const ITEM_RE = /^([ \t]*)[-*+] (?:\[([ xX])\] ?)?(.*)$/;
-const TRAIL_RE = /(?:^|\s+)(?:@(done|added)\((\d{4}-\d{2}-\d{2})\)|\^([a-z0-9]{6})|@todo\(([a-z0-9]{6})\))\s*$/;   // @todo(id): This Week line copied from that To-Do item
+const TRAIL_RE = /(?:^|\s+)(?:@(done|added)\((\d{4}-\d{2}-\d{2})\)|\^([a-z0-9]{6})|@todo\(([a-z0-9]{6})\)|@carried\(([a-z0-9]{6})\))\s*$/;   // @todo(id): This Week line copied from that To-Do item; @carried(id): unfinished line carried forward, id = the new copy
 function parseOutline(text) {
   const roots = [], stack = [];
   let last = null;
@@ -131,15 +131,16 @@ function parseOutline(text) {
     if (!raw.trim() || raw.trim().startsWith("<!--")) continue;
     const m = raw.match(ITEM_RE);
     if (m) {
-      let rest = m[3].replace(/\s+$/, ""), id = "", done_on = "", todo = "", t;
+      let rest = m[3].replace(/\s+$/, ""), id = "", done_on = "", todo = "", carried = "", t;
       while ((t = rest.match(TRAIL_RE))) {
         if (t[3] && !id) id = t[3];
         if (t[4] && !todo) todo = t[4];
+        if (t[5] && !carried) carried = t[5];
         if (t[1] === "done" && !done_on) done_on = t[2];
         rest = rest.slice(0, t.index).replace(/\s+$/, "");
       }
       const width = m[1].replace(/\t/g, "  ").length;
-      const node = { id, text: rest.trim(), done: (m[2] || " ").toLowerCase() === "x", done_on, todo, note: "", children: [] };
+      const node = { id, text: rest.trim(), done: (m[2] || " ").toLowerCase() === "x", done_on, todo, carried, note: "", children: [] };
       while (stack.length && stack[stack.length - 1].w >= width) stack.pop();
       (stack.length ? stack[stack.length - 1].n.children : roots).push(node);
       stack.push({ w: width, n: node });
@@ -160,7 +161,9 @@ function setLineDone(text, id, done, date) {
     return l;
   }).join("\n");
 }
-const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+// Planner day: before 4 a.m. counts as the previous day (DAY_START_HOUR in the desktop app's config.py).
+const DAY_START_HOUR = 4;
+const todayIso = () => { const d = new Date(Date.now() - DAY_START_HOUR * 3600e3); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
 // ---------------------------------------------------------------- data
 const D = { planText: "", files: {}, cal: null, routine: null, plan: null, planRev: "", week: null, weekRev: "", weekTree: [], loadedAt: 0, lists: [] };
@@ -391,9 +394,17 @@ function renderToday() {
   $("#view-today").innerHTML = h;
 }
 
+/** "Tue" for a line carried to the copy filed under the "Tue Oct 27" section of This Week. */
+function carriedDay(id) {
+  for (const sect of D.weekTree) {
+    const has = (ns) => ns.some((x) => x.id === id || has(x.children));
+    if (has(sect.children)) return sect.text.split(/\s+/)[0];
+  }
+  return "";
+}
 function renderNodes(nodes) {
   return "<ul class=\"outline\">" + nodes.map((n) =>
-    `<li class="${n.done ? "done" : ""}"><div class="row-item"><input type="checkbox" data-item="${esc(n.id)}"${n.done ? " checked" : ""}><span>${esc(n.text)}${n.todo ? ' <small class="todo-link" title="From your To-Do List">↗</small>' : ""}</span></div>` +
+    `<li class="${n.done ? "done" : n.carried ? "carried" : ""}"><div class="row-item"><input type="checkbox" data-item="${esc(n.id)}"${n.done ? " checked" : ""}><span>${esc(n.text)}${n.todo ? ' <small class="todo-link" title="From your To-Do List">↗</small>' : ""}${!n.done && n.carried ? ` <small class="carried-to">→ ${esc(carriedDay(n.carried) || "later")}</small>` : ""}</span></div>` +
     (n.children.length ? renderNodes(n.children) : "") + "</li>").join("") + "</ul>";
 }
 
