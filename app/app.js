@@ -640,6 +640,7 @@ function md(s) {   // small Markdown subset for replies
 
 function renderChat() {
   $("#top-title").textContent = "Ask Claude";
+  VOICE.show();
   const ghOk = !!LS.get("gh_token");
   $("#top-sub").textContent = ghOk ? "" : "set up in Settings";
   const msgs = CHAT.msgs().filter((m) => m.conv === CHAT.conv());
@@ -677,6 +678,7 @@ async function sendChat(text) {
 }
 function finishMsg(id, reply) {
   const msgs = CHAT.msgs(), i = msgs.findIndex((m) => m.role === "bot" && m.id === id);
+  if (i >= 0 && msgs[i].pending && reply.text) VOICE.say(reply.text);
   if (i >= 0) msgs[i] = { role: "bot", id, conv: msgs[i].conv, text: reply.text || "", error: reply.error, changed: reply.changed, conflicts: reply.conflicts };
   CHAT.save(msgs); renderChat();
 }
@@ -698,6 +700,41 @@ async function pollChat() {
   CHAT.timer = setTimeout(pollChat, 4000);
 }
 
+// ---------------------------------------------------------------- voice (🎤 and Read aloud in the chat)
+const VOICE = {
+  on: LS.get("read_aloud", false),
+  rec: null,
+  plain(t) {   // Markdown -> something that sounds right
+    return String(t || "").replace(/```[\s\S]*?```/g, " ").replace(/`([^`]*)`/g, "$1").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .replace(/^[ \t]*\|?[ \t:|-]+\|[ \t]*$/gm, "").replace(/^[ \t]*\|(.*)\|[ \t]*$/gm, (_, r) => r.split("|").map((c) => c.trim()).join(", ") + ".")
+      .replace(/[*_#>★]+/g, "").replace(/^\s*[-•]\s+/gm, "").replace(/[–→]/g, " to ").replace(/—/g, ", ");
+  },
+  say(text) {
+    if (!this.on || !window.speechSynthesis) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(this.plain(text)); u.lang = "en-US";
+    speechSynthesis.speak(u);
+  },
+  show() { const b = $("#chat-speak"); if (b) { b.classList.toggle("on", this.on); b.textContent = this.on ? "🔊" : "🔈"; b.setAttribute("aria-pressed", String(this.on)); } },
+  toggle() {
+    this.on = !this.on; LS.set("read_aloud", this.on); this.show();
+    if (window.speechSynthesis) { speechSynthesis.cancel(); if (this.on) speechSynthesis.speak(new SpeechSynthesisUtterance("")); }   // a tap unlocks speech on iPhone
+  },
+  listen() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition, box = $("#chat-input"), mic = $("#chat-mic");
+    if (this.rec) { try { this.rec.stop(); } catch { /* already stopped */ } return; }
+    const hint = () => { showBanner("Use the microphone on the keyboard instead: tap the message box, then the 🎤 key."); box.focus(); };
+    if (!SR) return hint();
+    window.speechSynthesis?.cancel();
+    const r = this.rec = new SR(), base = box.value ? box.value.replace(/\s*$/, " ") : "";
+    r.lang = "en-US"; r.interimResults = true; r.continuous = true;
+    r.onresult = (e) => { let t = ""; for (let i = 0; i < e.results.length; i++) t += e.results[i][0].transcript; box.value = base + t.trim(); };
+    r.onerror = (e) => { if (["not-allowed", "service-not-allowed", "audio-capture"].includes(e.error)) hint(); };
+    r.onend = () => { this.rec = null; mic.classList.remove("listening"); };
+    try { r.start(); mic.classList.add("listening"); } catch { this.rec = null; hint(); }
+  },
+};
+
 // ---------------------------------------------------------------- Settings
 function renderSettings() {
   $("#top-title").textContent = "Settings";
@@ -709,6 +746,9 @@ function renderSettings() {
     <input id="gh-token" type="password" placeholder="${gh ? "Key saved — paste to replace" : "Paste GitHub key (github_pat_…)"}" autocomplete="off">
     <div class="row"><button id="gh-save" class="primary">Save key</button>${gh ? '<button id="gh-clear">Remove key</button>' : ""}</div>
     <p class="small"><a href="https://github.com/${CFG.repo}/actions" target="_blank" rel="noopener">Recent jobs at GitHub</a></p>
+    <h3>Siri</h3>
+    <p class="small">For the Siri Shortcuts "Add to planner" and "Ask planner" (setup steps: README in ${CFG.repo}). Copies this phone's Dropbox and GitHub keys as one block to paste into the Shortcuts' setup step. Keep it private.</p>
+    <button id="copy-siri"${gh ? "" : " disabled"}>Copy Siri setup</button>
     <h3>Dropbox</h3>
     <p class="small">Signed in. Your Planner folder: ${CFG.root}</p>
     <button id="signout">Sign out of Dropbox</button>
@@ -751,6 +791,14 @@ document.addEventListener("click", async (e) => {
   if (t.dataset.op === "first") return editOp("first");
   if (t.dataset.say) return sendChat(t.dataset.say);
   if (t.id === "chat-send") { const v = $("#chat-input").value; $("#chat-input").value = ""; return sendChat(v); }
+  if (t.id === "chat-mic") return VOICE.listen();
+  if (t.id === "chat-speak") return VOICE.toggle();
+  if (t.id === "copy-siri") {
+    const block = JSON.stringify({ app_key: CFG.appKey, dropbox_refresh: LS.get("dbx_refresh") || "", github_token: LS.get("gh_token") || "", repo: CFG.repo, root: CFG.root });
+    try { await navigator.clipboard.writeText(block); showBanner("Copied. Paste it into the Shortcut's Text action (see the setup steps)."); }
+    catch { showBanner("Couldn't copy on this device."); }
+    return;
+  }
   if (t.id === "chat-new") { LS.set("chat_conv", null); return renderChat(); }
   if (t.id === "gh-save") { const v = $("#gh-token").value.trim(); if (v) { LS.set("gh_token", v); showBanner("GitHub key saved."); } return renderSettings(); }
   if (t.id === "gh-clear") { LS.set("gh_token", null); return renderSettings(); }

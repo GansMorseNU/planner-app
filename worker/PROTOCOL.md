@@ -5,7 +5,7 @@ or a server later) follows the same rules, so the phone never needs to know whic
 
 | Path | Written by | Content |
 |---|---|---|
-| `requests/<id>.json` | phone | `{"id", "conversation", "text", "created"}` — one message |
+| `requests/<id>.json` | phone, or the Siri Shortcut "Ask planner" | `{"id", "conversation", "text", "created", "local_time"?, "voice"?}` — one message; `"voice": true` asks for a short reply meant to be read aloud (Siri uses conversation `siri`) |
 | `working/<id>.json` | worker | `{"id", "worker", "started", "progress": [..]}` — updated while running |
 | `replies/<id>.json` | worker | `{"id", "conversation", "text", "error", "changed": [..], "conflicts": [..], "worker", "started", "finished"}` |
 | `sessions/<conversation>.json` | worker | `{"session_id", "jsonl"}` — Claude Code session, so the next message continues the same conversation |

@@ -1,6 +1,6 @@
 /* Offline shell: app files come from the network when possible, else from the cache.
  * Dropbox and GitHub requests are never cached here (the app keeps its own last copy). */
-const CACHE = "planner-shell-v8";
+const CACHE = "planner-shell-v9";
 const SHELL = ["./", "index.html", "app.js", "style.css", "manifest.webmanifest", "icon.png", "apple-touch-icon.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener("activate", (e) => {

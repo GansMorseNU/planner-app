@@ -175,7 +175,14 @@ const srv = http.createServer((q, r) => {
   const log = await p.textContent("#chat-log");
   ok(log.includes("Today at a glance") && log.includes("Saved: data/plan.json"), "reply shown with changed files");
   await p.screenshot({ path: "/tmp/claude-0/phone-chat.png" });
+  await p.click("#chat-speak");
+  ok((await p.getAttribute("#chat-speak", "class")).includes("on") && (await p.textContent("#chat-speak")).includes("🔊"), "Read aloud toggles on");
+  await p.click("#chat-speak");
+  ok(!(await p.getAttribute("#chat-speak", "class") || "").includes("on"), "Read aloud toggles off");
+  await p.click("#chat-mic"); await p.waitForTimeout(300);
+  ok(await p.isVisible("#chat-mic"), "mic button present (speech itself is tested on the phone)");
   await p.click('.tabs button[data-view="settings"]');
+  ok(await p.isVisible("#copy-siri"), "Settings offers Copy Siri setup");
   await p.screenshot({ path: "/tmp/claude-0/phone-settings.png" });
   ok(errs.length === 0, "no page errors " + errs.join("; "));
   await b.close(); srv.close();

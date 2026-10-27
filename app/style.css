@@ -88,6 +88,8 @@ details.sect summary { font-weight: 600; padding: 4px 0; }
 @keyframes blink { 50% { opacity: .2; } }
 .chat-quick { display: flex; gap: 6px; padding: 6px 16px; overflow-x: auto; }
 .chat-quick button { white-space: nowrap; font-size: 14px; padding: 6px 10px; }
+#chat-mic.listening { background: #c0392b; color: #fff; border-color: #c0392b; }
+#chat-speak.on { background: var(--accent); color: var(--accent-text); }
 .chat-input { display: flex; gap: 8px; padding: 6px 16px 10px; align-items: flex-end; }
 .chat-input textarea { resize: none; max-height: 140px; }
 

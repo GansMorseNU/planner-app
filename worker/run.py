@@ -259,6 +259,11 @@ def handle(dbx, rid):
             (d / f"{sid}.jsonl").write_text(sess["jsonl"], encoding="utf-8")
         local = req.get("local_time") or ""
         text = (f"[Local time: {local}]\n" if local else "") + req.get("text", "")
+        if req.get("voice"):   # asked through the Siri Shortcut "Ask planner": the reply is read aloud
+            text = ("[Asked by voice through Siri, possibly while driving. Your reply will be read aloud: "
+                    "answer in 2-4 short plain sentences, no lists, tables, symbols, IDs or file names. "
+                    "If he asks you to add something, add it under \"INBOX (voice)\" at the top of the "
+                    "To-Do List (create it if missing) and confirm in a few words.]\n" + text)
         answer, new_sid, err = run_claude(work, text, sid, progress)
         if err and sid and re.search(r"no conversation|not found|session", str(err), re.I):
             progress("Starting a fresh conversation…")
