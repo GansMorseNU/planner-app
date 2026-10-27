@@ -1,0 +1,15 @@
+<!-- Planner outline. Safe to edit by hand: two spaces per indent level, '- [ ]' open, '- [x]' done, '> ' for note lines. The ^xxxxxx tags are item IDs. -->
+- [ ] TOP 3 THIS WEEK @added(2026-10-25) ^pqy5iz
+  - [ ] Slides — ready before Wednesday @todo(rgw9ku) @added(2026-10-25) ^j1hanc
+- [ ] MUST-DOS THIS WEEK (small) @added(2026-10-25) ^o9pzqi
+  - [x] answer the dentist @added(2026-10-25) @done(2026-10-25) ^mwfuju
+  - [x] set seminar to Busy @added(2026-10-25) @done(2026-10-25) ^oe9481
+- [ ] Sun Oct 25 @added(2026-10-25) ^sun25x
+  - [ ] order bag for Sasha's show and tell @todo(kaczf8) @carried(e7xq45) @added(2026-10-25) ^yx51cf
+- [ ] Mon Oct 26 @added(2026-10-25) ^mdt8hr
+  - [ ] gym after drop-off (back ~10:45) @added(2026-10-25) ^vfaqoc
+  - [ ] ★ BJPS review — write up and submit (due today) @todo(otoo4e) @added(2026-10-25) ^sfocsw
+  - [ ] order bag for Sasha's show and tell (carried from Sun) @todo(kaczf8) @added(2026-10-26) ^e7xq45
+  - [ ] 2:00 call with Tanner @added(2026-10-25) ^nszhpf
+- [ ] Tue Oct 27 @added(2026-10-25) ^bkvk3h
+  - [ ] ★ Slides (9:15–12) @added(2026-10-25) ^dkvdvg

@@ -1,8 +1,8 @@
 // Drives the phone app in a phone-sized browser against a mocked Dropbox + GitHub.
-// Usage: node tests/phone.test.js <planner-folder-copy>
+// Usage: node tests/phone.test.js [planner-folder]   (default: tests/fixture, made-up data)
 const { chromium, devices } = require("playwright");
 const fs = require("fs"), path = require("path"), http = require("http");
-const ROOT = process.argv[2], APP = path.join(__dirname, "..", "app");
+const ROOT = process.argv[2] || path.join(__dirname, "fixture"), APP = path.join(__dirname, "..", "app");
 const files = new Map(); let revN = 1;
 function load(rel) { const p = path.join(ROOT, rel); if (fs.existsSync(p)) files.set("/planner/" + rel.toLowerCase(), { text: fs.readFileSync(p, "utf8"), rev: "r" + revN++, name: rel }); }
 ["cache/calendar.json", "data/routine.json", "data/plan.json", "data/lists.json", "data/this-week.md", "data/tasks.md", "data/research-pipeline.md", "data/research-ideas.md"].forEach(load);
@@ -86,6 +86,10 @@ const srv = http.createServer((q, r) => {
   await p.click('.tabs button[data-view="week"]');
   ok((await p.textContent("#view-week")).includes("TOP 3 THIS WEEK"), "This Week view lists sections");
   ok(await p.locator("#view-week li.done").count() >= 2, "done items shown crossed out, not hidden");
+  await p.evaluate(() => document.querySelectorAll("#view-week details").forEach((d) => { d.open = true; }));
+  const car = p.locator('#view-week li.carried:has(input[data-item="yx51cf"])');
+  ok(await car.count() === 1 && (await car.textContent()).includes("→ Mon"), "carried-forward line greyed with the day it went to");
+  ok(await p.locator('#view-week li.carried:has(input[data-item="e7xq45"])').count() === 0, "its open copy is not greyed");
   await p.screenshot({ path: "/tmp/claude-0/phone-week.png" });
 
   // Lists

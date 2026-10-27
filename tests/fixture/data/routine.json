@@ -1,0 +1,7 @@
+{
+ "templates": [
+  {"name": "Fall 2026", "from": "2026-09-21", "to": "2026-12-03",
+   "blocks": [{"title": "School pickup", "days": ["mon", "tue", "thu"], "start": "14:45", "end": "15:15", "skip_dates": []}]}
+ ],
+ "recurring_tasks": []
+}

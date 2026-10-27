@@ -29,6 +29,8 @@ The iPhone side of Jordan's Planner (`~/Dropbox/Planner`). Two parts:
 
 ## Tests
 
-`node tests/phone.test.js <copy of the Planner folder>` drives the app in a phone-sized
-browser against a mocked Dropbox and GitHub (ticks, conflict handling, chat round trip).
+`node tests/phone.test.js` drives the app in a phone-sized browser against a mocked Dropbox
+and GitHub (ticks, carried lines, list editing, conflict handling, chat round trip). It uses the
+made-up files in `tests/fixture/` (never real data), so it doesn't break as the real lists change;
+pass a folder path to run it against another copy.
 The worker has its own mock-based test (not in the repo yet).

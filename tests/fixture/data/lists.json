@@ -1,0 +1,6 @@
+[
+ {"id": "todo", "title": "To-Do List", "file": "tasks.md"},
+ {"id": "week", "title": "This Week", "file": "this-week.md", "show_completed": true},
+ {"id": "pipeline", "title": "Research Pipeline", "file": "research-pipeline.md"},
+ {"id": "ideas", "title": "Research Ideas", "file": "research-ideas.md"}
+]
