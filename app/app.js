@@ -123,7 +123,7 @@ class Conflict extends Error { constructor(p) { super(p + " changed elsewhere");
 
 // ---------------------------------------------------------------- outline files (same format as desktop app/outline.py)
 const ITEM_RE = /^([ \t]*)[-*+] (?:\[([ xX])\] ?)?(.*)$/;
-const TRAIL_RE = /(?:^|\s+)(?:@(done|added)\((\d{4}-\d{2}-\d{2})\)|\^([a-z0-9]{6}))\s*$/;
+const TRAIL_RE = /(?:^|\s+)(?:@(done|added)\((\d{4}-\d{2}-\d{2})\)|\^([a-z0-9]{6})|@todo\(([a-z0-9]{6})\))\s*$/;   // @todo(id): This Week line copied from that To-Do item
 function parseOutline(text) {
   const roots = [], stack = [];
   let last = null;
@@ -131,14 +131,15 @@ function parseOutline(text) {
     if (!raw.trim() || raw.trim().startsWith("<!--")) continue;
     const m = raw.match(ITEM_RE);
     if (m) {
-      let rest = m[3].replace(/\s+$/, ""), id = "", done_on = "", t;
+      let rest = m[3].replace(/\s+$/, ""), id = "", done_on = "", todo = "", t;
       while ((t = rest.match(TRAIL_RE))) {
         if (t[3] && !id) id = t[3];
+        if (t[4] && !todo) todo = t[4];
         if (t[1] === "done" && !done_on) done_on = t[2];
         rest = rest.slice(0, t.index).replace(/\s+$/, "");
       }
       const width = m[1].replace(/\t/g, "  ").length;
-      const node = { id, text: rest.trim(), done: (m[2] || " ").toLowerCase() === "x", done_on, note: "", children: [] };
+      const node = { id, text: rest.trim(), done: (m[2] || " ").toLowerCase() === "x", done_on, todo, note: "", children: [] };
       while (stack.length && stack[stack.length - 1].w >= width) stack.pop();
       (stack.length ? stack[stack.length - 1].n.children : roots).push(node);
       stack.push({ w: width, n: node });
@@ -356,12 +357,21 @@ function renderToday() {
   if (calAge !== null && calAge > 6 * 3600e3) h += `<p class="note">Calendar copy is from ${ago(new Date(D.cal.fetched_at).getTime())} (it refreshes when the Planner runs on your Mac).</p>`;
   if (allDay.length) h += `<div class="allday">${allDay.map((a) => `<span class="chip${a.busy ? " busy" : ""}" style="--c:${esc(a.color || "#999")}">${esc(a.title)}</span>`).join("")}</div>`;
   h += '<ol class="timeline">';
+  const shownInBlocks = new Set();
   let nowShown = dayOffset !== 0;
   for (const t of timed) {
     if (!nowShown && t.s > now) { h += `<li class="now"><span>${hm(now)} — now</span></li>`; nowShown = true; }
     const time = `<span class="time">${hm(t.s)}<br><small>${hm(t.e)}</small></span>`;
     if (t.kind === "plan") {
-      h += `<li class="plan ${esc(t.k || "work")}${t.done ? " done" : ""}">${time}<div class="row-item"><input type="checkbox" data-block="${esc(t.id)}"${t.done ? " checked" : ""}><span>${esc(t.title)}</span></div></li>`;
+      const its = (D.plan.blocks.find((b) => b.id === t.id)?.items || []).map((i) => findNode(D.weekTree, i)).filter(Boolean);
+      its.forEach((n) => shownInBlocks.add(n.id));
+      const nd = its.filter((n) => n.done).length, done = its.length ? nd === its.length : false;
+      // One line: its tick box sits beside the block title. Several (e.g. an email batch): listed under it.
+      h += `<li class="plan ${esc(t.k || "work")}${done ? " done" : ""}">${time}<div class="blk">` +
+        (its.length === 1
+          ? `<div class="row-item"><input type="checkbox" data-item="${esc(its[0].id)}"${its[0].done ? " checked" : ""}><b class="btitle">${esc(t.title)}</b></div>`
+          : `<b class="btitle">${esc(t.title)}${its.length > 1 && !done ? ` <small>${nd}/${its.length}</small>` : ""}</b>` +
+            (its.length ? renderNodes(its.map((n) => ({ ...n, children: [] }))) : "")) + `</div></li>`;
     } else if (t.kind === "routine") {
       h += `<li class="routine">${time}<span>${esc(t.title)}</span></li>`;
     } else {
@@ -372,7 +382,8 @@ function renderToday() {
   h += "</ol>";
   if (!timed.length) h += '<p class="note">Nothing on the calendar or planned.</p>';
   const sec = weekSection(day);
-  if (sec) h += `<h3>From This Week</h3>${renderNodes(sec.children)}`;
+  const rest = sec ? sec.children.filter((n) => !shownInBlocks.has(n.id)) : [];
+  if (rest.length) h += `<h3>Also today (This Week)</h3>${renderNodes(rest)}`;
   const top = D.weekTree.find((n) => /^TOP 3/i.test(n.text)), must = D.weekTree.find((n) => /^MUST-DOS/i.test(n.text));
   if (dayOffset === 0 && top) h += `<h3>Top 3 this week</h3>${renderNodes(top.children)}`;
   if (dayOffset === 0 && must) h += `<h3>Must-dos this week</h3>${renderNodes(must.children)}`;
@@ -382,7 +393,7 @@ function renderToday() {
 
 function renderNodes(nodes) {
   return "<ul class=\"outline\">" + nodes.map((n) =>
-    `<li class="${n.done ? "done" : ""}"><div class="row-item"><input type="checkbox" data-item="${esc(n.id)}"${n.done ? " checked" : ""}><span>${esc(n.text)}</span></div>` +
+    `<li class="${n.done ? "done" : ""}"><div class="row-item"><input type="checkbox" data-item="${esc(n.id)}"${n.done ? " checked" : ""}><span>${esc(n.text)}${n.todo ? ' <small class="todo-link" title="From your To-Do List">↗</small>' : ""}</span></div>` +
     (n.children.length ? renderNodes(n.children) : "") + "</li>").join("") + "</ul>";
 }
 

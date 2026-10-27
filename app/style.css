@@ -130,3 +130,12 @@ body.editing .view { padding-bottom: 70px; }
 .top > div { display: flex; gap: 2px; }
 .icon.undo { font-size: 22px; }
 #saving { color: var(--muted); font-size: 13px; }
+
+.timeline .blk { flex: 1; }
+.timeline .blk .btitle { display: block; font-weight: 600; }
+.timeline .blk .btitle small { font-weight: 400; color: var(--muted); }
+.timeline .blk .outline { margin: 4px 0 0; }
+.timeline .plan.done .btitle { text-decoration: line-through; color: var(--muted); }
+.todo-link { color: var(--muted); }
+.timeline .blk .outline li { display: block; background: none; padding: 0; margin: 6px 0 0; border-radius: 0; }
+.timeline .blk .row-item .btitle { flex: 1; }

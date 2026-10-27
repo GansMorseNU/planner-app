@@ -37,8 +37,9 @@ const srv = http.createServer((q, r) => {
     }
     const cur = files.get(key), m = arg.mode;
     if ((m === "add" && cur) || (m[".tag"] === "update" && (!cur || cur.rev !== m.update)))
-      return rt.fulfill({ status: 409, body: JSON.stringify({ error_summary: "path/conflict/file/" }) });
+      { if (process.env.DBG) console.log("CONFLICT", key, JSON.stringify(m), cur && cur.rev); return rt.fulfill({ status: 409, body: JSON.stringify({ error_summary: "path/conflict/file/" }) }); }
     const rev = "r" + revN++;
+    if (process.env.DBG) console.log("WRITE", key, JSON.stringify(m), "->", rev);
     files.set(key, { text: req.postDataBuffer().toString("utf8"), rev });
     rt.fulfill({ json: { rev } });
   });
@@ -54,11 +55,13 @@ const srv = http.createServer((q, r) => {
   ok(today.includes("call with tanner"), "Today shows Google event");
   ok(today.includes("School pickup"), "Today shows routine pickup");
   ok(today.includes("Gym"), "Today shows planned block");
-  ok(today.includes("From This Week") && today.includes("BJPS review"), "Today shows This Week lines for the day");
+  ok(today.includes("BJPS review") && today.includes("Also today"), "Today shows This Week lines for the day");
   await p.screenshot({ path: "/tmp/claude-0/phone-today.png", fullPage: false });
 
   // tick the gym block -> plan.json done + this-week line ticked
-  await p.check('input[data-block="0nkj6h"]');
+  ok(await p.locator("input[data-block]").count() === 0, "calendar blocks have no tick box of their own");
+  ok(await p.locator('#view-today li.plan input[data-item="vfaqoc"]').count() === 1 && await p.locator('#view-today input[data-item="vfaqoc"]').count() === 1, "block lists its This Week line (once on the screen)");
+  await p.check('#view-today li.plan input[data-item="vfaqoc"]');
   await p.waitForTimeout(500);
   const plan = JSON.parse(files.get("/planner/data/plan.json").text);
   ok(plan.blocks.find((x) => x.id === "0nkj6h").done === true, "block marked done in plan.json");
@@ -66,7 +69,7 @@ const srv = http.createServer((q, r) => {
   ok(/- \[x\] gym after drop-off.* @done\(2026-10-26\) \^vfaqoc/.test(wk), "linked This Week line ticked with date");
   const orig = fs.readFileSync(path.join(ROOT, "data/this-week.md"), "utf8").split("\n"), now = wk.split("\n");
   ok(orig.length === now.length && orig.filter((l, i) => l !== now[i]).length === 1, "only that one line changed");
-  ok(await p.isChecked('input[data-item="vfaqoc"]'), "This Week checkbox on Today follows");
+  ok(await p.isChecked('input[data-item="vfaqoc"]') && (await p.getAttribute('#view-today li.plan:has(input[data-item="vfaqoc"])', "class")).includes("done"), "block shows as done on Today");
 
   // untick through the This Week line -> block undone
   await p.uncheck('input[data-item="vfaqoc"]'); await p.waitForTimeout(500);
@@ -75,7 +78,7 @@ const srv = http.createServer((q, r) => {
 
   // conflict: file changed on the Mac meanwhile -> reload and redo
   const f = files.get("/planner/data/this-week.md"); f.text = f.text.replace("bag for Sasha", "bag for Sasha (edited on Mac)"); f.rev = "r" + revN++;
-  await p.check('input[data-item="sfocsw"]'); await p.waitForTimeout(800);
+  await p.click('input[data-item="sfocsw"]'); await p.waitForTimeout(800);   // one tap (check() would re-tap after the reload)
   const w2 = files.get("/planner/data/this-week.md").text;
   ok(w2.includes("(edited on Mac)") && !/- \[x\] ★ BJPS review/.test(w2) && (await p.textContent("#banner")).includes("not"), "conflict: Mac edit kept, tick not forced over it, user told");
 
