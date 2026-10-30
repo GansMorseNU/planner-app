@@ -144,3 +144,8 @@ body.editing .view { padding-bottom: 70px; }
 .carried-to { color: var(--muted); white-space: nowrap; }
 .timeline .blk .outline li { display: block; background: none; padding: 0; margin: 6px 0 0; border-radius: 0; }
 .timeline .blk .row-item .btitle { flex: 1; }
+/* Calendar-event lines in This Week (@event): a clock face instead of a tick box. */
+.outline li.cal-event > .row-item > span { color: var(--muted); }
+.outline .clock { flex: none; width: 16px; height: 16px; margin: 3px 2px 0; border: 1.5px solid var(--muted); border-radius: 50%; position: relative; box-sizing: border-box; }
+.outline .clock::before { content: ""; position: absolute; left: 5.5px; top: 2px; width: 1.5px; height: 5px; background: var(--muted); }
+.outline .clock::after { content: ""; position: absolute; left: 5.5px; top: 5.5px; width: 4px; height: 1.5px; background: var(--muted); }

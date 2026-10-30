@@ -56,6 +56,7 @@ const srv = http.createServer((q, r) => {
   ok(today.includes("School pickup"), "Today shows routine pickup");
   ok(today.includes("Gym"), "Today shows planned block");
   ok(today.includes("BJPS review") && today.includes("Also today"), "Today shows This Week lines for the day");
+  ok(!today.includes("2:00 call with Tanner"), "calendar-event line not repeated under Also today");
   await p.screenshot({ path: "/tmp/claude-0/phone-today.png", fullPage: false });
 
   // tick the gym block -> plan.json done + this-week line ticked
@@ -90,6 +91,9 @@ const srv = http.createServer((q, r) => {
   const car = p.locator('#view-week li.carried:has(input[data-item="yx51cf"])');
   ok(await car.count() === 1 && (await car.textContent()).includes("→ Mon"), "carried-forward line greyed with the day it went to");
   ok(await p.locator('#view-week li.carried:has(input[data-item="e7xq45"])').count() === 0, "its open copy is not greyed");
+  const ev = p.locator('#view-week li.cal-event');
+  ok(await ev.count() === 1 && (await ev.textContent()).trim() === "2:00 call with Tanner" && await p.locator('input[data-item="nszhpf"]').count() === 0,
+     "calendar-event line shown with a clock, no tick box, no @event tag");
   await p.screenshot({ path: "/tmp/claude-0/phone-week.png" });
 
   // Lists

@@ -7,7 +7,9 @@ The iPhone side of Jordan's Planner (`~/Dropbox/Planner`). Two parts:
   the phone); nothing is stored on any server. Tabs: **Today** (Google Calendar copy, school
   pickup, planned blocks with ticks, today's This Week lines), **This Week**, **Ask Claude**,
   **Settings**. Ticks follow the desktop rule: blocks ↔ This Week lines only; the To-Do List
-  is never ticked from here. Every write is revision-checked, so a newer copy in Dropbox is
+  is never ticked from here. Calendar-event lines in This Week (`@event(14:00)`) show a clock
+  instead of a tick box and are left out of Today's "Also today" (they are already in the
+  timeline). Every write is revision-checked, so a newer copy in Dropbox is
   never overwritten.
 - **`worker/`** — answers the Ask Claude chat. The phone writes a request into
   `Dropbox/Planner/.chat/phone/` and starts the GitHub job `.github/workflows/ask-claude.yml`,

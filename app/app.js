@@ -123,7 +123,7 @@ class Conflict extends Error { constructor(p) { super(p + " changed elsewhere");
 
 // ---------------------------------------------------------------- outline files (same format as desktop app/outline.py)
 const ITEM_RE = /^([ \t]*)[-*+] (?:\[([ xX])\] ?)?(.*)$/;
-const TRAIL_RE = /(?:^|\s+)(?:@(done|added)\((\d{4}-\d{2}-\d{2})\)|\^([a-z0-9]{6})|@todo\(([a-z0-9]{6})\)|@carried\(([a-z0-9]{6})\))\s*$/;   // @todo(id): This Week line copied from that To-Do item; @carried(id): unfinished line carried forward, id = the new copy
+const TRAIL_RE = /(?:^|\s+)(?:@(done|added)\((\d{4}-\d{2}-\d{2})\)|\^([a-z0-9]{6})|@todo\(([a-z0-9]{6})\)|@carried\(([a-z0-9]{6})\)|(@event(?:\((\d{2}:\d{2})\))?))\s*$/;   // @todo(id): This Week line copied from that To-Do item; @carried(id): unfinished line carried forward, id = the new copy; @event(HH:MM) or @event: a calendar event (no tick box)
 function parseOutline(text) {
   const roots = [], stack = [];
   let last = null;
@@ -131,16 +131,17 @@ function parseOutline(text) {
     if (!raw.trim() || raw.trim().startsWith("<!--")) continue;
     const m = raw.match(ITEM_RE);
     if (m) {
-      let rest = m[3].replace(/\s+$/, ""), id = "", done_on = "", todo = "", carried = "", t;
+      let rest = m[3].replace(/\s+$/, ""), id = "", done_on = "", todo = "", carried = "", event = "", t;
       while ((t = rest.match(TRAIL_RE))) {
         if (t[3] && !id) id = t[3];
         if (t[4] && !todo) todo = t[4];
         if (t[5] && !carried) carried = t[5];
+        if (t[6] && !event) event = t[7] || "day";
         if (t[1] === "done" && !done_on) done_on = t[2];
         rest = rest.slice(0, t.index).replace(/\s+$/, "");
       }
       const width = m[1].replace(/\t/g, "  ").length;
-      const node = { id, text: rest.trim(), done: (m[2] || " ").toLowerCase() === "x", done_on, todo, carried, note: "", children: [] };
+      const node = { id, text: rest.trim(), done: (m[2] || " ").toLowerCase() === "x", done_on, todo, carried, event, note: "", children: [] };
       while (stack.length && stack[stack.length - 1].w >= width) stack.pop();
       (stack.length ? stack[stack.length - 1].n.children : roots).push(node);
       stack.push({ w: width, n: node });
@@ -385,7 +386,8 @@ function renderToday() {
   h += "</ol>";
   if (!timed.length) h += '<p class="note">Nothing on the calendar or planned.</p>';
   const sec = weekSection(day);
-  const rest = sec ? sec.children.filter((n) => !shownInBlocks.has(n.id)) : [];
+  // Calendar-event lines (@event) are already in the timeline above, from Google Calendar.
+  const rest = sec ? sec.children.filter((n) => !shownInBlocks.has(n.id) && !n.event) : [];
   if (rest.length) h += `<h3>Also today (This Week)</h3>${renderNodes(rest)}`;
   const top = D.weekTree.find((n) => /^TOP 3/i.test(n.text)), must = D.weekTree.find((n) => /^MUST-DOS/i.test(n.text));
   if (dayOffset === 0 && top) h += `<h3>Top 3 this week</h3>${renderNodes(top.children)}`;
@@ -404,7 +406,7 @@ function carriedDay(id) {
 }
 function renderNodes(nodes) {
   return "<ul class=\"outline\">" + nodes.map((n) =>
-    `<li class="${n.done ? "done" : n.carried ? "carried" : ""}"><div class="row-item"><input type="checkbox" data-item="${esc(n.id)}"${n.done ? " checked" : ""}><span>${esc(n.text)}${n.todo ? ' <small class="todo-link" title="From your To-Do List">↗</small>' : ""}${!n.done && n.carried ? ` <small class="carried-to">→ ${esc(carriedDay(n.carried) || "later")}</small>` : ""}</span></div>` +
+    `<li class="${n.event ? "cal-event" : n.done ? "done" : n.carried ? "carried" : ""}"><div class="row-item">${n.event ? '<i class="clock" title="Calendar event"></i>' : `<input type="checkbox" data-item="${esc(n.id)}"${n.done ? " checked" : ""}>`}<span>${esc(n.text)}${n.todo ? ' <small class="todo-link" title="From your To-Do List">↗</small>' : ""}${!n.done && n.carried ? ` <small class="carried-to">→ ${esc(carriedDay(n.carried) || "later")}</small>` : ""}</span></div>` +
     (n.children.length ? renderNodes(n.children) : "") + "</li>").join("") + "</ul>";
 }
 

@@ -10,6 +10,6 @@
   - [ ] gym after drop-off (back ~10:45) @added(2026-10-25) ^vfaqoc
   - [ ] ★ BJPS review — write up and submit (due today) @todo(otoo4e) @added(2026-10-25) ^sfocsw
   - [ ] order bag for Sasha's show and tell (carried from Sun) @todo(kaczf8) @added(2026-10-26) ^e7xq45
-  - [ ] 2:00 call with Tanner @added(2026-10-25) ^nszhpf
+  - [ ] 2:00 call with Tanner @event(14:00) @added(2026-10-25) ^nszhpf
 - [ ] Tue Oct 27 @added(2026-10-25) ^bkvk3h
   - [ ] ★ Slides (9:15–12) @added(2026-10-25) ^dkvdvg
