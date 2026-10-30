@@ -94,6 +94,11 @@ const srv = http.createServer((q, r) => {
   const ev = p.locator('#view-week li.cal-event');
   ok(await ev.count() === 1 && (await ev.textContent()).trim() === "2:00 call with Tanner" && await p.locator('input[data-item="nszhpf"]').count() === 0,
      "calendar-event line shown with a clock, no tick box, no @event tag");
+  ok(!(await ev.getAttribute("class")).includes("past"), "event not greyed before its time (9:40, event 2:00)");
+  await ctx.clock?.fastForward?.("05:00:00");
+  await p.click('.tabs button[data-view="today"]'); await p.click('.tabs button[data-view="week"]');
+  await p.evaluate(() => document.querySelectorAll("#view-week details").forEach((d) => { d.open = true; }));
+  ok((await p.locator('#view-week li.cal-event').getAttribute("class")).includes("past"), "event greyed once its time has passed");
   await p.screenshot({ path: "/tmp/claude-0/phone-week.png" });
 
   // Lists

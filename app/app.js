@@ -404,10 +404,42 @@ function carriedDay(id) {
   }
   return "";
 }
-function renderNodes(nodes) {
+/** Ids of This Week calendar-event lines (@event) whose start time has passed (same rule as desktop). */
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function pastEventIds() {
+  const out = new Set(), now = new Date();
+  let prev = null;
+  for (const sec of D.weekTree) {
+    const m = /^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\w*\s+([A-Z][a-z]{2})\w*\s+(\d{1,2})\b/.exec(sec.text);
+    let day = null, weekend = false;
+    if (m && MONTHS.includes(m[2])) {
+      for (const y of [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1]) {
+        const d = new Date(y, MONTHS.indexOf(m[2]), Number(m[3]));
+        if (!day || Math.abs(d - now) < Math.abs(day - now)) day = d;
+      }
+      prev = day;
+    } else if (/^weekend\b/i.test(sec.text) && prev) {
+      weekend = true; day = new Date(prev); day.setDate(day.getDate() + (6 - prev.getDay()) % 7);
+    }
+    if (!day) continue;
+    const walk = (ns) => ns.forEach((n) => {
+      if (n.event) {
+        const d = new Date(day);
+        if (weekend && /^\s*sun/i.test(n.text)) d.setDate(d.getDate() + 1);
+        if (n.event === "day") d.setDate(d.getDate() + 1);
+        else { const [h, mi] = n.event.split(":").map(Number); d.setHours(h, mi, 0, 0); }
+        if (d <= now) out.add(n.id);
+      }
+      walk(n.children);
+    });
+    walk(sec.children);
+  }
+  return out;
+}
+function renderNodes(nodes, past = pastEventIds()) {
   return "<ul class=\"outline\">" + nodes.map((n) =>
-    `<li class="${n.event ? "cal-event" : n.done ? "done" : n.carried ? "carried" : ""}"><div class="row-item">${n.event ? '<i class="clock" title="Calendar event"></i>' : `<input type="checkbox" data-item="${esc(n.id)}"${n.done ? " checked" : ""}>`}<span>${esc(n.text)}${n.todo ? ' <small class="todo-link" title="From your To-Do List">↗</small>' : ""}${!n.done && n.carried ? ` <small class="carried-to">→ ${esc(carriedDay(n.carried) || "later")}</small>` : ""}</span></div>` +
-    (n.children.length ? renderNodes(n.children) : "") + "</li>").join("") + "</ul>";
+    `<li class="${n.event ? "cal-event" + (past.has(n.id) ? " past" : "") : n.done ? "done" : n.carried ? "carried" : ""}"><div class="row-item">${n.event ? '<i class="clock" title="Calendar event"></i>' : `<input type="checkbox" data-item="${esc(n.id)}"${n.done ? " checked" : ""}>`}<span>${esc(n.text)}${n.todo ? ' <small class="todo-link" title="From your To-Do List">↗</small>' : ""}${!n.done && n.carried ? ` <small class="carried-to">→ ${esc(carriedDay(n.carried) || "later")}</small>` : ""}</span></div>` +
+    (n.children.length ? renderNodes(n.children, past) : "") + "</li>").join("") + "</ul>";
 }
 
 function renderWeek() {

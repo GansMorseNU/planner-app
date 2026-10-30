@@ -149,3 +149,6 @@ body.editing .view { padding-bottom: 70px; }
 .outline .clock { flex: none; width: 16px; height: 16px; margin: 3px 2px 0; border: 1.5px solid var(--muted); border-radius: 50%; position: relative; box-sizing: border-box; }
 .outline .clock::before { content: ""; position: absolute; left: 5.5px; top: 2px; width: 1.5px; height: 5px; background: var(--muted); }
 .outline .clock::after { content: ""; position: absolute; left: 5.5px; top: 5.5px; width: 4px; height: 1.5px; background: var(--muted); }
+.outline li.cal-event.past > .row-item > span,
+.outline li.done > .row-item > span { text-decoration: line-through; color: var(--muted); }
+.outline li.cal-event.past .clock { opacity: 0.55; }
